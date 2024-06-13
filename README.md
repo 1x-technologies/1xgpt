@@ -6,6 +6,8 @@ To accelerate progress in general purpose robotics, we're announcing a competiti
 
 Beyond the scope of the 1X compression challenge, we hope that this dataset will be helpful to roboticists who want to experiment with a diverse set of general-purpose robotics data in human environments. A sufficiently powerful world model will allow anyone to access a "neurally-simulated EVE".
 
+[Download the Dataset on Kaggle](https://www.kaggle.com/datasets/onextech/world-model)
+
 |||||||||
 |---|---|---|---|---|---|---|---|
 |![til](./assets/generated_offset2521107.gif)|![til](./assets/generated_offset6722954.gif)|![til](./assets/generated_offset8963939.gif)|![til](./assets/generated_offset3734974.gif)|![til](./assets/generated_offset8777190.gif)|![til](./assets/generated_offset4855467.gif)|![til](./assets/generated_offset5789210.gif)|![til](./assets/generated_offset186748.gif)|
@@ -21,6 +23,8 @@ Beyond the scope of the 1X compression challenge, we hope that this dataset will
 
 
 ## Getting Started
+
+[Download the dataset](https://www.kaggle.com/datasets/onextech/world-model) from Kaggle and extract the dataset to `data/train_v0`, `data/val_v0`, `data/decoder-checkpoint-111000`. 
 
 ```
 # install dependencies
@@ -40,6 +44,28 @@ python train_llm.py --output_dir data/video_llm
 
 # visualize the generated results
 ./visualize.py --token_dir data/generated 
+```
+
+## Training GENIE
+
+This repo provides an implementation of the spatio-temporal transformer and MaskGIT sampler as described in [Genie: Generative Interactive Environments](https://arxiv.org/abs/2402.15391). Note that this implemention only trains on video sequences, not actions (though it is trivial to add this via an additive embedding). To train this baseline, 
+
+```
+source venv/bin/activate
+pip install -r baselines/requirements.txt
+
+# Train the GENIE model
+python train_st_model.py --root_dir data/genie_model
+
+# Generate frames from trained model
+python baselines/generate_genie.py --checkpoint <PATH_TO_CKPT?>
+
+# visualize generated frames
+./visualize.py --token_dir data/genie_generated --stride 1
+
+# Evaluate
+python baselines/evaluate_genie.py --val_data_dir data/val_v0 --checkpoint <PATH_TO_CKPT?>
+
 ```
 
 ## Data (Version: 0.0.1)
@@ -80,29 +106,6 @@ All scores are evaluated on our held-out dataset.
 |eric|N/A|N/A|3.68|0.294|0.20|1.13|
 
 *Note that generation time is the time to generate latents on a RTX 4090 GPU, and excludes the time to decode latents to images.
-
-
-## Training GENIE
-
-This repo provides an implementation of the spatio-temporal transformer and MaskGIT sampler as described in [Genie: Generative Interactive Environments](https://arxiv.org/abs/2402.15391). Note that this implemention only trains on video sequences, not actions (though it is trivial to add this via an additive embedding). To train this baseline, 
-
-```
-source venv/bin/activate
-pip install -r baselines/requirements.txt
-
-# Train the GENIE model
-python train_st_model.py --root_dir data/genie_model
-
-# Generate frames from trained model
-python baselines/generate_genie.py --checkpoint <PATH_TO_CKPT?>
-
-# visualize generated frames
-./visualize.py --token_dir data/genie_generated --stride 1
-
-# Evaluate
-python baselines/evaluate_genie.py --val_data_dir data/val_v0 --checkpoint <PATH_TO_CKPT?>
-
-```
 
 
 ## Citation
