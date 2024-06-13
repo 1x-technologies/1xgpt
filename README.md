@@ -21,6 +21,7 @@ Beyond the scope of the 1X compression challenge, we hope that this dataset will
 - **Sampling Challenge ($1000 prize)**: Future prediction methods are not necessarily restricted to next-logit prediction. You can, for example, use methods like GANs, Diffusion, and MaskGIT to generate future images. Can you generate future latents with an accuracy of 45% or a LPIPS of 0.1?
 - **Evaluation Challenge (upcoming)**: given a set of N policies, $\pi_1, \pi_2, ... \pi_N$, where each policy $\pi_i(a_t|z_t)$ predicts action tokens from image tokens, can you evaluate all of the policies inside a "world model" $p(z_{t+1}|z_t, a_t)$ and tell us the ranked order of which policy is the best?
 
+These challenges are largely inspired by the [commavq compression challenge](https://github.com/commaai/commavq).
 
 ## Getting Started
 
