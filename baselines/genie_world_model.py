@@ -1,41 +1,37 @@
 import math
+from functools import partial
 
-import lightning as L
-import numpy as np
-import torch
-import torch.nn.functional as F
-import torchvision
-from torch import nn
-from torchvision import transforms
-from einops import rearrange
-from vector_quantize_pytorch import FSQ
-from diffusers.optimization import get_scheduler
-from tqdm import tqdm
 import torch
 import torch.nn as nn
+from einops import rearrange
+from tqdm import tqdm
+import lightning as L
 import torch.nn.functional as F
-from torch.utils.data import DataLoader
-from collections import defaultdict
-from torchmetrics.functional import accuracy
-from functools import partial
+from diffusers.optimization import get_scheduler
 
 from baselines.st_transformer import STTransformerDecoder
 
+
+def accuracy(logits, targets):
+    _, preds = torch.max(logits, dim=-1)
+    return torch.sum(preds == targets) / logits.shape[0]
+
+
 class STWorldModel(nn.Module):
     # Next-Token prediction as done in https://arxiv.org/pdf/2402.15391.pdf
-    def __init__(self, T, S, image_vocab_size, model_size=0):
+    def __init__(self, T, S, image_vocab_size):
         super().__init__()
         # Use last token in vocab as mask token for now, switch to a new token later
         self.image_mask_token = image_vocab_size - 1
-        num_layers=8
-        d_model=1024
-        num_heads=16
+        num_layers = 8
+        d_model = 1024
+        num_heads = 16
         # Incl. mask token
         self.token_embed = nn.Embedding(image_vocab_size, d_model)
         self.decoder = STTransformerDecoder(num_layers=num_layers, dim=d_model, num_heads=num_heads)
         self.pos_embed_TSC = torch.nn.Parameter(torch.zeros(1, T, S, d_model))
         self.out_x_proj = nn.Linear(d_model, image_vocab_size)
-        
+
     def forward(self, x_THW):
         T, H, W = x_THW.size(1), x_THW.size(2), x_THW.size(3)
         x_TS = rearrange(x_THW, "B T H W -> B T (H W)")
@@ -132,15 +128,17 @@ class STWorldModel(nn.Module):
         # Return the final sample and logits
         return sample_HW, logits_CHW
 
-# intialize model, optimizer and defines training step
+
 class LitWorldModel(L.LightningModule):
     def __init__(self, 
-        T, 
-        S, 
-        image_vocab_size, 
-        min_mask_rate=0.5, 
-        max_mask_rate=1.0, 
-        decode_batch_size=4):
+        T,
+        S,
+        image_vocab_size,
+        min_mask_rate=0.5,
+        max_mask_rate=1.0,
+    ):
+        # T -- temporal sequence length, e.g.16
+        # S -- spatial sequence length, e.g. 20x20 = 400
         super().__init__()
         self.model = STWorldModel(T, S, image_vocab_size)
         self.T = T
@@ -178,15 +176,13 @@ class LitWorldModel(L.LightningModule):
         # loss = F.cross_entropy(x_output, x_targets)
         loss_masked_THW = F.cross_entropy(x_output, x_targets, reduction='none')
         self.log(f"img_loss/{split}", loss_masked_THW.mean(), rank_zero_only=True)
-        acc = accuracy(x_output, x_targets, task="multiclass", num_classes=x_output.shape[1])
+        acc = accuracy(x_output, x_targets)
         self.log(f"img_acc/{split}", acc, add_dataloader_idx=False, rank_zero_only=True)
-        # multiply loss values by mask instead of indexing them in compute_loss, more computationally
-        # efficient
+        # multiply loss values by mask instead of indexing them in compute_loss, more computationally efficient
         loss_masked_tokens = torch.mean(loss_masked_THW * is_masked_THW)
         self.log(f"masked_img_loss/{split}", loss_masked_tokens, prog_bar=True, rank_zero_only=True)
-        acc_THW = x_output.argmax(dim=1) == x_targets
-        self.log(f"masked_img_acc/{split}", acc_THW.float().mean(), prog_bar=True, rank_zero_only=True)
-        # only optimize on the masked/noised logits?
+        acc_THW = accuracy(x_output, x_targets)
+        self.log(f"masked_img_acc/{split}", acc_THW, prog_bar=True, rank_zero_only=True)
         return loss_masked_tokens
 
     def training_step(self, batch, batch_idx, split="train"):

@@ -1,4 +1,5 @@
-from torch import nn, Tensor
+import torch
+from torch import nn
 from typing import Optional
 from einops import rearrange
 
@@ -17,6 +18,7 @@ from baselines.attention import SelfAttention
 # num_heads=16
 # k/q_size=64
 
+
 class Mlp(nn.Module):
     def __init__(
         self, in_features: int, hidden_features: Optional[int] = None, out_features: Optional[int] = None, drop: float = 0.0, bias: bool = True
@@ -27,7 +29,7 @@ class Mlp(nn.Module):
         self.fc2 = nn.Linear(hidden_features, out_features, bias=bias)
         self.drop = nn.Dropout(drop)
 
-    def forward(self, x: Tensor) -> Tensor:
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.drop(self.act(self.fc1(x)))
         x = self.drop(self.fc2(x))
         return x
@@ -45,7 +47,6 @@ class STBlock(nn.Module):
         ffn_bias: bool = True,
         drop: float = 0.0,
         attn_drop: float = 0.0,
-        init_values: Optional[float] = None,
         qkv_norm: bool = True,
     ) -> None:
         super().__init__()
@@ -59,7 +60,7 @@ class STBlock(nn.Module):
         mlp_hidden_dim = int(dim * mlp_ratio)
         self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim, out_features=dim, drop=drop, bias=ffn_bias)
         
-    def forward(self, x_TSC: Tensor) -> Tensor:
+    def forward(self, x_TSC: torch.Tensor) -> torch.Tensor:
         # Process attention spatially
         T, S = x_TSC.size(1), x_TSC.size(2)
         x_SC = rearrange(x_TSC, 'B T S C -> (B T) S C')

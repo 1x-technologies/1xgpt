@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 
-import argparse
-import json
-import torch
-import numpy as np
-from pathlib import Path
-
 import os
 import sys
+import argparse
+import json
+from pathlib import Path
+
+import torch
+import numpy as np
+
 sys.path.append(os.getcwd())
 from data import RawTokenDataset
 from baselines.genie_world_model import LitWorldModel

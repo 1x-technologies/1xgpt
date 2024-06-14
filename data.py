@@ -1,9 +1,9 @@
-import json
 import os
+import json
+from pathlib import Path
 
 import torch
 import numpy as np
-from pathlib import Path
 from torch.utils.data import Dataset as TorchDataset
 
 

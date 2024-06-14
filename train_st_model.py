@@ -1,24 +1,21 @@
-import lightning as L
-import torch
-import numpy as np
-from torch.utils.data import DataLoader
-from torch.utils.data import Dataset as TorchDataset
-import json
-from pathlib import Path
-from lightning.pytorch.callbacks import ModelCheckpoint
-from absl import app, flags
-from lightning.pytorch.strategies import DDPStrategy
-from torch.distributed.algorithms.ddp_comm_hooks import default_hooks as default
-from data import RawTokenDataset
-
 import os
 import sys
+import json
+from pathlib import Path
+
+import torch
+from torch.utils.data import DataLoader
+import lightning as L
+from lightning.pytorch.callbacks import ModelCheckpoint
+from absl import app, flags
+
+from data import RawTokenDataset
 
 sys.path.append(os.getcwd())
 from baselines.genie_world_model import LitWorldModel
 
 # DATA
-flags.DEFINE_string("train_data_dir", 'data/train_v0', "Path to directory containing size.txt, video.bin, actions.bin, states.bin, segment_ids.bin")
+flags.DEFINE_string("train_data_dir", 'data/train_v0', "Path to directory containing size.txt, video.bin, actions.bin, segment_ids.bin")
 flags.DEFINE_string("val_data_dir", 'data/val_v0', "Path to directory containing validation tokens.")
 flags.DEFINE_integer("batch_size", 4, "Batch size")
 flags.DEFINE_integer("window_size", 16, "Number of input/output frames")

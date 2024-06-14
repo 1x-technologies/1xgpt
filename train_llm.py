@@ -36,18 +36,59 @@ logger = get_logger(__name__)
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Finetune a transformers model on a causal language modeling task")
+
+    # Data
     parser.add_argument(
-        "--train_data_dir", type=str, default="data/train_v0", help="Directory containing tokenized data."
+        "--train_data_dir", type=str, required=True, help="Directory containing tokenized data, should have a `metadata.json` and `video.bin`."
     )
     parser.add_argument(
-        "--val_data_dir", type=str, default="data/train_v0", help="Directory containing tokenized data."
+        "--val_data_dir", type=str, required=True, help="Directory containing tokenized data, should have a `metadata.json` and `video.bin`."
     )
     parser.add_argument(
-        "--config_name",
+        "--window_size",
+        type=int,
+        default=16,
+        help="Number of frames to train sequence on",
+    )
+    parser.add_argument(
+        "--stride",
+        type=int,
+        default=15,
+        help="skip every stride images.",
+    )
+    parser.add_argument(
+        "--chunk_skip_size",
+        type=int,
+        default=1,
+        help=("If not specified, by default every frame will be appear in the dataset `window_size` times. "
+              "E.g. (frame_0, frame_15, frame_31, ...), (frame_15, frame_31, frame_47, ...), (frame31, frame_47, frame_63, ...). "
+              "If specified, will only include every `chunk_skip_size` of these chunks in the dataset."
+              "E.g. if `chunk_skip_size=2`, (frame_0, frame_15, frame_31, ...), (frame31, frame_47, frame_63, ...)."
+              "`chunk_skip_size=window_size` corresponds to each frame only appearing once in the dataset.")
+    )
+
+    # Model
+    parser.add_argument(
+        "--model_config",
         type=str,
-        default="data/model_checkpt/config.json",
-        help="Config of model to initialize",
+        required=True,
+        help="Huggingface-style model config json",
     )
+    parser.add_argument(
+        "--warmstart_path",
+        type=str,
+        default=None,
+        help="A path to a checkpoint to warmstart a model from, possibly not trained on the same dataset, "
+             "will resize embeddings if needed.",
+    )
+    parser.add_argument(
+        "--resume_from_checkpoint",
+        type=str,
+        default=None,
+        help="If the training should continue from a checkpoint folder.",
+    )
+
+    # Training
     parser.add_argument(
         "--per_device_train_batch_size",
         type=int,
@@ -59,6 +100,17 @@ def parse_args():
         type=int,
         default=1,
         help="Batch size (per device) for the evaluation dataloader.",
+    )
+    parser.add_argument(
+        "--gradient_accumulation_steps",
+        type=int,
+        default=1,
+        help="Number of updates steps to accumulate before performing a backward/update pass.",
+    )
+    parser.add_argument(
+        "--gradient_checkpointing",
+        default=False,
+        action="store_true",
     )
     parser.add_argument(
         "--learning_rate",
@@ -75,22 +127,16 @@ def parse_args():
         help="Total number of training steps to perform. If provided, overrides num_train_epochs.",
     )
     parser.add_argument(
-        "--eval_every_n_steps",
-        type=int,
-        default=1000,
-        help="Eval every N training steps.",
-    )
-    parser.add_argument(
         "--max_eval_steps",
         type=int,
         default=10,
         help="Only evaluate on `max_eval_steps` batches of validation data, faster.",
     )
     parser.add_argument(
-        "--gradient_accumulation_steps",
+        "--eval_every_n_steps",
         type=int,
-        default=1,
-        help="Number of updates steps to accumulate before performing a backward/update pass.",
+        default=1000,
+        help="Eval every N training steps.",
     )
     parser.add_argument(
         "--lr_scheduler_type",
@@ -101,50 +147,6 @@ def parse_args():
     )
     parser.add_argument(
         "--num_warmup_steps", type=int, default=0, help="Number of steps for the warmup in the lr scheduler."
-    )
-    parser.add_argument("--output_dir", type=str, required=True, help="Where to store the model checkpoints.")
-    parser.add_argument("--seed", type=int, default=42, help="A seed for reproducible training.")
-    parser.add_argument(
-        "--window_size",
-        type=int,
-        default=16,
-        help="Number of frames to train sequence on",
-    )
-    parser.add_argument(
-        "--stride",
-        type=int,
-        default=15,
-        help="skip every stride images.",
-    )
-    parser.add_argument(
-        "--checkpointing_steps",
-        type=str,
-        default="1000",
-        help="Whether the various states should be saved at the end of every n steps, or 'epoch' for each epoch.",
-    )
-    parser.add_argument(
-        "--resume_from_checkpoint",
-        type=str,
-        default=None,
-        help="If the training should continue from a checkpoint folder.",
-    )
-    parser.add_argument(
-        "--report_to",
-        type=str,
-        default="all",
-        help=(
-            "The integration to report the results and logs to. Current code assumes `wandb` is being used."
-            'Use `"all"` (default) to report to all integrations. '
-        ),
-    )
-
-    # Added arguments - kevin
-    parser.add_argument(
-        "--overfit_first_batch",
-        action="store_true",
-        help=(
-            "Debug option that trains and validates on only the first batch of the training dataset."
-        ),
     )
     parser.add_argument(
         "--max_grad_norm",
@@ -173,23 +175,33 @@ def parse_args():
         type=float,
         default=1e-8,
     )
+
+    # Misc
+    parser.add_argument("--output_dir", type=str, required=True, help="Where to store the model checkpoints.")
     parser.add_argument(
-        "--warmstart_path",
+        "--checkpointing_steps",
         type=str,
-        default=None,
-        help="A path to a checkpoint to warmstart a model from, possibly not trained on the same dataset, "
-             "will resize embeddings if needed.",
+        default="1000",
+        help="Whether the various states should be saved at the end of every n steps, or 'epoch' for each epoch.",
+    )
+    parser.add_argument("--seed", type=int, default=42, help="A seed for reproducible training.")
+    parser.add_argument(
+        "--overfit_first_batch",
+        action="store_true",
+        help=(
+            "Debug option that trains and validates on only the first batch of the training dataset."
+        ),
     )
     parser.add_argument(
-        "--chunk_skip_size",
-        type=int,
-        default=1,
-        help=("If not specified, by default every frame will be appear in the dataset `window_size` times. "
-              "E.g. (frame_0, frame_15, frame_31, ...), (frame_15, frame_31, frame_47, ...), (frame31, frame_47, frame_63, ...). "
-              "If specified, will only include every `chunk_skip_size` of these chunks in the dataset."
-              "E.g. if `chunk_skip_size=2`, (frame_0, frame_15, frame_31, ...), (frame31, frame_47, frame_63, ...)."
-              "`chunk_skip_size=window_size` corresponds to each frame only appearing once in the dataset.")
+        "--report_to",
+        type=str,
+        default="all",
+        help=(
+            "The integration to report the results and logs to. Current code assumes `wandb` is being used."
+            'Use `"all"` (default) to report to all integrations. '
+        ),
     )
+
     args = parser.parse_args()
 
     return args
@@ -214,17 +226,12 @@ def save_checkpoint(model, accelerator, args, filename):
 
 
 @torch.no_grad()
-def visualize(accelerator, model, dataloader, args, metadata, metrics_prefix="eval"):
+def visualize(accelerator, model, dataloader, window_size, metadata, metrics_prefix="eval", max_steps=1):
     """
     Visualizes model's autoregressive generation outputs, logged to wandb.
 
-    Args:
-        accelerator:
-        model:
-        dataloader:
-        args:
-        metadata:
-        metrics_prefix: each metric is logged as f"{metrics_prefix}_{metric_key}". Also used in name of wandb figure.
+    metadata: contains `s` (latent side length) and `unet` (path to U-Net checkpoint)
+    metrics_prefix: each metric is logged as f"{metrics_prefix}_{metric_key}". Also used in name of wandb figure.
     """
     accelerator.wait_for_everyone()
     unwrapped_model = accelerator.unwrap_model(model)
@@ -232,21 +239,21 @@ def visualize(accelerator, model, dataloader, args, metadata, metrics_prefix="ev
     decode_latents = decode_latents_wrapper(unet_checkpoint_path=metadata["unet"], max_images=1e10)  # re-initializing every time to save memory
     if accelerator.is_main_process:
         lpips_alex = lpips.LPIPS(net="alex")  # Calculate LPIPS w/ AlexNet, which is the fastest model out of their options
-        metrics = {key: [] for key in ("pred_lpips",)}
+        metrics = {"pred_lpips": []}
 
     latent_side_len = metadata["s"]
 
     unwrapped_model.eval()
     for step, batch in enumerate(dataloader):
         # Note: hardcoding 4 image cap for faster inference on small models
-        reshaped_input_ids = rearrange(batch["input_ids"][:4], "b (t s) -> b t s", t=args.window_size).to(model.device)  # `s` is really `(h, w)`
+        reshaped_input_ids = rearrange(batch["input_ids"][:4], "b (t s) -> b t s", t=window_size).to(model.device)  # `s` is really `(h, w)`
 
-        num_prompt_frames = args.window_size // 2  # hardcoding half of frames for context
-        num_new_tokens = latent_side_len ** 2 * (args.window_size - num_prompt_frames)
+        num_prompt_frames = window_size // 2  # hardcoding half of frames for context
+        num_new_tokens = latent_side_len ** 2 * (window_size - num_prompt_frames)
         prompt_input_ids = rearrange(reshaped_input_ids[:, :num_prompt_frames], "b t s -> b (t s)")
         outputs = unwrapped_model.generate(input_ids=prompt_input_ids, attention_mask=torch.ones_like(prompt_input_ids),
                                            max_new_tokens=num_new_tokens, min_new_tokens=num_new_tokens)
-        output_tokens = rearrange(outputs, "b (t h w) -> b t h w", t=args.window_size,
+        output_tokens = rearrange(outputs, "b (t h w) -> b t h w", t=window_size,
                                   h=latent_side_len, w=latent_side_len)
         gtruth_tokens = rearrange(reshaped_input_ids[:, num_prompt_frames:], "b t (h w) -> b t h w",
                                   h=latent_side_len, w=latent_side_len)
@@ -258,9 +265,9 @@ def visualize(accelerator, model, dataloader, args, metadata, metrics_prefix="ev
         decoded_gtruth = accelerator.gather(decoded_gtruth.to(accelerator.device)).cpu()
 
         if accelerator.is_main_process:
-            exs_per_fig = 4  # Try to
+            exs_per_fig = 4
             for j in range(0, len(decoded_output), exs_per_fig):
-                fig, axs = plt.subplots(nrows=2 * exs_per_fig, ncols=args.window_size, figsize=(3 * args.window_size, 3 * 2 * exs_per_fig))
+                fig, axs = plt.subplots(nrows=2 * exs_per_fig, ncols=window_size, figsize=(3 * window_size, 3 * 2 * exs_per_fig))
                 # If len(decoded_output) is not a multiple of 4, make sure to truncate properly
                 for k in range(min(exs_per_fig, len(decoded_output) - j)):
                     for i in range(num_prompt_frames):
@@ -269,7 +276,7 @@ def visualize(accelerator, model, dataloader, args, metadata, metrics_prefix="ev
                             ax.set_title("Context")
                             ax.axis("off")
 
-                    for i in range(num_prompt_frames, args.window_size):
+                    for i in range(num_prompt_frames, window_size):
                         axs[k * 2, i].imshow(transforms_f.to_pil_image(decoded_gtruth[j + k, i - num_prompt_frames]))
                         axs[k * 2, i].set_title("Ground truth")
                         axs[k * 2 + 1, i].imshow(transforms_f.to_pil_image(decoded_output[j + k, i]))
@@ -284,7 +291,7 @@ def visualize(accelerator, model, dataloader, args, metadata, metrics_prefix="ev
             metrics["pred_lpips"].extend(compute_lpips(decoded_gtruth,  # Note: note parallelizing right now
                                                        decoded_output[:, num_prompt_frames:], lpips_alex))
 
-        if step >= 0:  # hardcoding for now
+        if step + 1 >= max_steps:
             break
 
     unwrapped_model.train()
@@ -329,7 +336,8 @@ def main():
         vocab_size = json.load(f)["vocab_size"]
 
     LATENT_SIDE_LEN = 20
-    config = transformers.AutoConfig.from_pretrained(args.config_name, vocab_size=vocab_size,
+    # rope_theta 500_000: https://arxiv.org/abs/2309.16039
+    config = transformers.AutoConfig.from_pretrained(args.model_config, vocab_size=vocab_size,
                                                      pad_token_id=None, attention_dropout=args.attention_dropout,
                                                      max_position_embeddings=LATENT_SIDE_LEN**2 * args.window_size,
                                                      rope_theta=500_000)
@@ -439,8 +447,10 @@ def main():
         )
 
     # Enable gradient checkpointing to save memory
-    # model.gradient_checkpointing_enable()
-    # model.config.use_cache = False # incompatible with grad checkpointing
+    if args.gradient_checkpointing:
+        logger.info("Enabling gradient checkpointing")
+        model.gradient_checkpointing_enable()
+        model.config.use_cache = False # incompatible with grad checkpointing
 
     # Prepare everything with our `accelerator`.
     model, optimizer, train_dataloader, eval_dataloader, lr_scheduler = accelerator.prepare(
@@ -463,8 +473,6 @@ def main():
     # We need to initialize the trackers we use, and also store our configuration.
     # The trackers initialize automatically on the main process.
     experiment_config = vars(args)
-    # # TensorBoard cannot log Enums, need the raw value
-    # experiment_config["lr_scheduler_type"] = experiment_config["lr_scheduler_type"].value
 
     zframe_side_len = eval_metadata["s"]
     data_hz = 30
@@ -492,6 +500,7 @@ def main():
     logger.info(f"  Total train batch size (w. parallel, distributed & accumulation) = {total_batch_size}")
     logger.info(f"  Gradient Accumulation steps = {args.gradient_accumulation_steps}")
     logger.info(f"  Total optimization steps = {args.max_train_steps}")
+
     # Only show the progress bar once on each machine.
     progress_bar = tqdm(range(args.max_train_steps), disable=not accelerator.is_local_main_process)
     completed_steps = 0
@@ -560,6 +569,7 @@ def main():
                 continue
 
             # Everything below only happens on update step
+
             if args.max_grad_norm is not None:
                 accelerator.clip_grad_norm_(model.parameters(), args.max_grad_norm)
 
@@ -640,8 +650,8 @@ def main():
                     step=completed_steps,
                 )
 
-                visualize(accelerator, model, eval_dataloader, args, eval_metadata)
-                visualize(accelerator, model, train_dataloader, args, eval_metadata, "train")  # Note: using eval_metadata
+                visualize(accelerator, model, eval_dataloader, args.window_size, eval_metadata, metrics_prefix="eval")
+                visualize(accelerator, model, train_dataloader, args.window_size, eval_metadata, metrics_prefix="train")  # Note: using eval_metadata
 
                 # Switch back to train mode
                 model.train()

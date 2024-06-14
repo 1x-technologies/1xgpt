@@ -3,7 +3,6 @@
 """Script to decode tokenized video into images/video."""
 
 import argparse
-import json
 from pathlib import Path
 from PIL import Image
 
@@ -13,7 +12,6 @@ import torch.distributed.optim
 import torch.utils.checkpoint
 import torch.utils.data
 from diffusers import AutoencoderKL, StableDiffusionInstructPix2PixPipeline
-from diffusers.utils import check_min_version
 from einops import rearrange
 from matplotlib import pyplot as plt
 from tqdm.auto import tqdm
@@ -22,14 +20,6 @@ from data import RawTokenDataset
 # Custom mod of diffusers UNet2DConditionModel
 from decoder.unet_2d_condition import UNet2DConditionModel2
 
-# Compilation flags
-torch._inductor.config.conv_1x1_as_mm = True
-torch._inductor.config.coordinate_descent_tuning = True
-torch._inductor.config.epilogue_fusion = False
-torch._inductor.config.coordinate_descent_check_all_directions = True
-
-# Will error if the minimal version of diffusers is not installed. Remove at your own risk.
-check_min_version("0.28.0")
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Simple example of a training script for InstructPix2Pix.")

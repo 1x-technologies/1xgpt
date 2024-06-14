@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 
-import argparse
 import json
+import argparse
+from pathlib import Path
+
+import torch
+import numpy as np
+from transformers import AutoModelForCausalLM
 
 from data import RawTokenDataset
-import torch
-from transformers import AutoModelForCausalLM
-import numpy as np
-from pathlib import Path
 
 
 STRIDE = 15
@@ -47,7 +48,8 @@ def main():
         - `window_size - num_prompt_frames` of ground truth frames corresponding to the predicted frames.
     """
     args = parse_args()
-    assert args.num_prompt_frames <= args.window_size
+    if args.num_prompt_frames > args.window_size:
+        raise ValueError("num_prompt_frames must be less than or equal to window_size")
     val_dataset = RawTokenDataset(args.val_data_dir, window_size=args.window_size, stride=STRIDE)
     latent_side_len = val_dataset.metadata["s"]
 
@@ -58,7 +60,7 @@ def main():
         args.checkpoint_dir,
         torch_dtype=torch.bfloat16,
         attn_implementation="flash_attention_2"
-    ).to('cuda')
+    ).to("cuda")
     model.eval()
 
     num_new_tokens = latent_side_len**2 * (args.window_size - args.num_prompt_frames)

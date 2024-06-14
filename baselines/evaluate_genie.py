@@ -5,10 +5,10 @@ import time
 import os
 import sys
 from collections import defaultdict
+
 import lpips
 import numpy as np
 import torch
-import torchvision.transforms.functional as transforms_f
 from einops import rearrange
 from torch.utils.data import DataLoader, Subset
 from tqdm import tqdm
@@ -26,16 +26,18 @@ WINDOW_SIZE = 16
 STRIDE = 15  # Data is 30 Hz so with stride 15, video is 2 Hz
 LATENT_H, LATENT_W = 20, 20  # Dimensions of the compressed image
 
+DEBUG = False
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description="")
     parser.add_argument(
-        "--val_data_dir", type=str, default="data/val_v0",  # TODO: ask eric about default
+        "--val_data_dir", type=str, default="data/val_v0",
         help="A directory with video data, should have a `metadata.json` and `video.bin`."
     )
     parser.add_argument(
-        "--checkpoint", type=str, default="data/genie_model/lightning_logs/version_0/checkpoints/epoch=0-step=97000.ckpt",
-        help="A directory with the model weights and config.json."
+        "--checkpoint", type=str, required=True,
+        help="Path to the Genie checkpoint"
     )
     parser.add_argument(
         "--batch_size", type=int, default=16,
@@ -78,9 +80,9 @@ class GenieEvaluator:
             print(f'Generating frame {timestep}')
             inputs_masked = inputs_THW.clone()
             inputs_masked[:, timestep:] = self.model.image_mask_token
-            
+
             # single forward pass from masked image - for debugging purposes on zero-shot prediction
-            if False:
+            if DEBUG:
                 logits_CTHW = self.model(inputs_masked)
                 logits_CHW = logits_CTHW[:, :-1, timestep]
                 sample_HW = logits_CHW.argmax(dim=1)
@@ -135,7 +137,7 @@ def main():
     lpips_alex = lpips.LPIPS(net="alex")  # Calculate LPIPS w/ AlexNet, which is the fastest model out of their options
     metrics = defaultdict(list)
 
-    for i, batch in enumerate(tqdm(dataloader)):
+    for batch in tqdm(dataloader):
         reshaped_input_ids = rearrange(batch["input_ids"], "b (t h w) -> b t h w", t=WINDOW_SIZE, h=LATENT_H, w=LATENT_W)
 
         # Averaging so slightly inaccurate if last batch is not full

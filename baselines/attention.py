@@ -1,14 +1,9 @@
-import os
-import warnings
-from typing import Optional
-
-import torch
-import torch.nn.functional as F
 from torch import Tensor, nn
-
 from xformers.ops import LowerTriangularMask, memory_efficient_attention, unbind
 
+
 class MemEffAttention(nn.Module):
+    # NOTE: Mem-eff attentin from xformers is actually Flash Attention 2
     def __init__(self, dim: int, num_heads: int = 8, qkv_bias: bool = False, proj_bias: bool = True, attn_drop: float = 0.0, qkv_norm: bool = False) -> None:
         super().__init__()
         self.num_heads = num_heads
@@ -49,4 +44,3 @@ class SelfAttention(MemEffAttention):
 
     def forward(self, x: Tensor, causal: bool = False) -> Tensor:
         return MemEffAttention.forward(self, x, causal=causal)
-
