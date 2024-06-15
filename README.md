@@ -1,10 +1,8 @@
-# 1X Agent Compression Challenge
+# 1X World Model Challenge
 
-Intelligence is [information compression](https://mattmahoney.net/dc/rationale.html), and animals and robots alike must efficiently compress their understanding of the future to act intelligently in the world.
+To accelerate progress in general purpose robotics, we're announcing a World Model competition, where the task is to predict future first-person observations of the [EVE Android](https://www.1x.tech/androids/eve). We provide over 100 hours of vector-quantized image and action tokens collected from operating EVE at 1X offices, baseline world models (LLM, GENIE), and a frame-level diffusion decoder to decode vector-quantized images into 160x160 images. See below for details on cash prizes.
 
-To accelerate progress in general purpose robotics, we're announcing a competition for predicting future first-person observations of the [EVE Android](https://www.1x.tech/androids/eve). We're providing a dataset of compressed image and action tokens collected over 100 hours of operating EVE at the 1X offices, baseline future-prediction models (LLM, GENIE), along with a frame-level diffusion decoder to decode latents into images. See below for details on cash prizes.
-
-Beyond the scope of the 1X compression challenge, we hope that this dataset will be helpful to roboticists who want to experiment with a diverse set of general-purpose robotics data in human environments. A sufficiently powerful world model will allow anyone to access a "neurally-simulated EVE".
+Beyond the scope of these challenges, we hope that this dataset will be helpful to roboticists who want to experiment with a diverse set of general-purpose robotics data in human environments. A sufficiently powerful world model will allow anyone to access a "neurally-simulated EVE".
 
 [Download the Dataset on Kaggle](https://www.kaggle.com/datasets/onextech/world-model)
 
@@ -16,6 +14,8 @@ Beyond the scope of the 1X compression challenge, we hope that this dataset will
 |![til](./assets/generated_offset2427733.gif)|![til](./assets/generated_offset7563323.gif)|![til](./assets/generated_offset1120492.gif)|![til](./assets/generated_offset11858544.gif)|![til](./assets/generated_offset7469949.gif)|![til](./assets/generated_offset9524185.gif)|![til](./assets/generated_offset2240984.gif)|![til](./assets/generated_offset9710934.gif)|
 
 ## Challenges
+
+Each example is a sequence of 16 images at 2Hz (so 8 seconds total), and your goal is to predict the next image given the previous ones.
 
 - **Compression Challenge ($1000 prize)**: Can you achieve a cross entropy loss on held-out video tokens lower than 2.1? The first submission to achieve this wins a prize of $1000. To participate in the challenge, fill in your model predictions in `evaluate.py`.
 - **Sampling Challenge ($1000 prize)**: Future prediction methods are not necessarily restricted to next-logit prediction. You can, for example, use methods like GANs, Diffusion, and MaskGIT to generate future images. Can you generate future latents with an accuracy of 45% or a LPIPS of 0.1?
@@ -114,17 +114,16 @@ All scores are evaluated on our held-out dataset.
 If you use this software or dataset in your work, please cite it as follows:
 
 ```
-@misc{Compression1x2024,
+@misc{WorldModelChallenge1X2024,
   author = {1X},
-  title = {1X Compression Challenge},
+  title = {1X World Model Challenge},
   year = {2024},
   publisher = {GitHub},
   journal = {GitHub repository},
   howpublished = {\url{https://github.com/1x-technologies/1xgpt}},
-  commit = {81ca9c47c0eb092006ffb4c8ab177d86d2051490}
+  commit = {22843fe3c43e92576c967c932e1197cd035a63d0}
 }
 ```
-
 
 ## Dataset Metadata
 The following table is necessary for this dataset to be indexed by search
@@ -137,7 +136,7 @@ engines such as <a href="https://g.co/datasetsearch">Google Dataset Search</a>.
   </tr>
   <tr>
     <td>name</td>
-    <td><code itemprop="name">1xgpt</code></td>
+    <td><code itemprop="name">1X World Model Challenge</code></td>
   </tr>
   <tr>
     <td>url</td>
