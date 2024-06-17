@@ -1,0 +1,21 @@
+# This CITATION.cff file was generated with cffinit.
+# Visit https://bit.ly/cffinit to generate yours today!
+
+cff-version: 1.2.0
+title: 1X World Model Challenge
+message: >-
+  If you use this dataset, please cite it using the metadata
+  from this file.
+type: dataset
+authors:
+  - name: 1X Technologies
+identifiers:
+  - type: url
+    value: 'https://github.com/1x-technologies/1xgpt'
+abstract: >-
+  A dataset of over 100 hours of compressed image + action
+  tokens across a fleet of EVE robots.
+license: Apache-2.0
+commit: 22843fe3c43e92576c967c932e1197cd035a63d0
+version: 0.0.1
+date-released: '2024-06-18'
