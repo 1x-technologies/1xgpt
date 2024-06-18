@@ -46,7 +46,7 @@ python train_llm.py --output_dir data/video_llm
 ./generate.py --output_dir data/generated
 
 # evaluate the baseline model
-./evaluate.py
+./evaluate.py --checkpoint_dir data/video_llm
 
 # visualize the generated results
 ./visualize.py --token_dir data/generated 
@@ -112,6 +112,14 @@ All scores are evaluated on our held-out dataset.
 |eric|N/A|N/A|3.68|0.294|0.20|1.13|
 
 *Note that generation time is the time to generate latents on a RTX 4090 GPU, and excludes the time to decode latents to images.
+
+### Metric Details
+We evaluate the model under two different scenarios; in both cases, the model receives the tokens of the previous frame(s) as input, 
+and the model should predict the tokens of the following frame. 
+- **Autoregressive** (frame-level) is closer to an actual generation scenario, where the model receives $t$ x 20x20 tokens representing frames 0 to $t - 1$, 
+and the model should auto-regressively predict all 20x20 for frame $t$.
+- (If applicable), **Teacher-forced** matches the typical training scenario with causal masking. 
+It is simply a next token prediction task where all previous tokens, including any in the current frame, are ground-truth tokens as opposed to autoregressively predicted tokens.
 
 
 ## Citation

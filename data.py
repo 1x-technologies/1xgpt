@@ -1,9 +1,9 @@
-import os
 import json
+import os
 from pathlib import Path
 
-import torch
 import numpy as np
+import torch
 from torch.utils.data import Dataset as TorchDataset
 
 
@@ -16,7 +16,7 @@ class RawTokenDataset(TorchDataset):
                 Notably, has `video.bin` and `metadata.json`
             window_size: number of frames per "video" sequence
             stride: frame skip
-            filter_interrupts: Under 3% of frame sequences are the concatenation of two different clips.
+            filter_interrupts: Under 3% of training frame sequences are the concatenation of two different clips.
                 If filter_interrupts is True, will filter out these sequences using the segment ids.
         """
         data_dir = Path(data_dir)
@@ -26,6 +26,8 @@ class RawTokenDataset(TorchDataset):
         shape = (self.metadata["num_images"], self.metadata["s"], self.metadata["s"])
         video_tokens_path, states_tokens_path, action_tokens_path = [data_dir / f"{name}.bin" for name in ["video", "states", "actions"]]
         self.data = np.memmap(video_tokens_path, dtype=np.uint16, mode="r", shape=shape)
+        # self.states = np.memmap(states_tokens_path, dtype=np.uint16, mode="r", shape=(self.metadata["num_images"],))
+        # self.actions = np.memmap(action_tokens_path, dtype=np.uint16, mode="r", shape=(self.metadata["num_images"],))
         self.window_size, self.stride = window_size, stride
         # Number of frames between the first and last frames of a video sequence (including one endpoint frame)
         self.video_len = (self.window_size - 1) * self.stride

@@ -1,32 +1,28 @@
 import math
 from functools import partial
 
+import lightning as L
 import torch
 import torch.nn as nn
-from einops import rearrange
-from tqdm import tqdm
-import lightning as L
 import torch.nn.functional as F
 from diffusers.optimization import get_scheduler
+from einops import rearrange
+from torchmetrics.functional import accuracy
+from tqdm import tqdm
 
 from baselines.st_transformer import STTransformerDecoder
 
 
 def accuracy(logits, targets):
-    _, preds = torch.max(logits, dim=-1)
+    _, preds = torch.max(logits, dim=1)
     return torch.sum(preds == targets) / logits.shape[0]
 
 
 class STWorldModel(nn.Module):
     # Next-Token prediction as done in https://arxiv.org/pdf/2402.15391.pdf
-    def __init__(self, T, S, image_vocab_size):
+    def __init__(self, T, S, image_vocab_size, num_layers=8, num_heads=16, d_model=1024):
         super().__init__()
-        # Use last token in vocab as mask token for now, switch to a new token later
         self.image_mask_token = image_vocab_size - 1
-        num_layers = 8
-        d_model = 1024
-        num_heads = 16
-        # Incl. mask token
         self.token_embed = nn.Embedding(image_vocab_size, d_model)
         self.decoder = STTransformerDecoder(num_layers=num_layers, dim=d_model, num_heads=num_heads)
         self.pos_embed_TSC = torch.nn.Parameter(torch.zeros(1, T, S, d_model))
@@ -42,7 +38,7 @@ class STWorldModel(nn.Module):
         x_next_TSC = self.out_x_proj(x_TSC)
         x_CTHW = rearrange(x_next_TSC, "B T (H W) C -> B C T H W", H=H, W=W)
         return x_CTHW
-    
+
     @torch.no_grad()
     def maskgit_generate_step(
         self,
@@ -74,13 +70,15 @@ class STWorldModel(nn.Module):
         sample = dist.sample()
         size = H * W
         # skip masking for last maskgit step
-        if maskgit_t != maskgit_steps-1:
+        if maskgit_t != maskgit_steps - 1:
             confidence = torch.gather(unmasked_probs, 1, sample[:, None])
             sample = sample.reshape(-1, size)
             confidence = confidence.reshape(-1, size)
             confidence[unmasked] = torch.inf
             # use cosine maks scheduling function
-            n = math.ceil(math.cos((maskgit_t + 1) / maskgit_steps * (math.pi / 2)) * size) # how many of frame out_t to mask
+            n = math.ceil(
+                math.cos((maskgit_t + 1) / maskgit_steps * (math.pi / 2)) * size)  # how many of frame out_t to mask
+            # n = [50, 100, 150, 200, 0][maskgit_t]
             # set the n pixels with the smallest confidence to mask_token
             least_confident_tokens = torch.argsort(confidence, dim=1)
             # unmask the (L - n) most confident tokens
@@ -88,12 +86,14 @@ class STWorldModel(nn.Module):
             sample.scatter_(1, least_confident_tokens[:, :n], self.image_mask_token)
         else:
             sample = sample.reshape(-1, size)
+
         # copy previously unmasked values from prompt input into sample
         sample[prev_unmasked] = prev_img_flat[prev_unmasked]
         if maskgit_t > 0:
             # copy previous unmasked values from previous logits into sample
             prev_unmasked_flat = prev_unmasked.flatten()
             unmasked_probs[prev_unmasked_flat] = frame_prev_logits_flat[prev_unmasked_flat]
+
         logits_CHW = rearrange(unmasked_probs, "(B H W) C -> B C H W", H=H, W=W)
         sample_HW = sample.reshape(-1, H, W)
         return sample_HW, logits_CHW
@@ -114,7 +114,8 @@ class STWorldModel(nn.Module):
     ):
         # assume we have pre-masked z2...zT with all masks
         assert out_t, "maskgit_generate requires out_t > 0"
-        assert torch.all(prompt_THW[:, out_t:] == self.image_mask_token), f"when generating z{out_t}, frames {out_t} and later must be masked"
+        assert torch.all(prompt_THW[:,
+                         out_t:] == self.image_mask_token), f"when generating z{out_t}, frames {out_t} and later must be masked"
         T, H, W = prompt_THW.size(1), prompt_THW.size(2), prompt_THW.size(3)
         # this will be modified by maskgit_generate_step
         unmasked = self.init_mask(prompt_THW)
@@ -130,17 +131,20 @@ class STWorldModel(nn.Module):
 
 
 class LitWorldModel(L.LightningModule):
-    def __init__(self, 
+    def __init__(self,
         T,
         S,
         image_vocab_size,
         min_mask_rate=0.5,
         max_mask_rate=1.0,
+        num_layers=8,
+        num_heads=16,
+        d_model=1024
     ):
         # T -- temporal sequence length, e.g.16
         # S -- spatial sequence length, e.g. 20x20 = 400
         super().__init__()
-        self.model = STWorldModel(T, S, image_vocab_size)
+        self.model = STWorldModel(T, S, image_vocab_size, num_layers, num_heads, d_model)
         self.T = T
         self.h = self.w = int(math.sqrt(S))
         self.image_vocab_size = image_vocab_size
@@ -148,8 +152,8 @@ class LitWorldModel(L.LightningModule):
         # MaskGIT params
         self.min_mask_rate = min_mask_rate
         self.max_mask_rate = max_mask_rate
-        self.max_random_token_rate = 0.1  # Probability of masking remaining unmasked tokens
-        
+        self.max_random_token_rate = 0.1  # Probability of corrupting remaining unmasked tokens
+
         # Register forward hooks for logging/debugging
         for st_block_idx, st_block in enumerate(self.model.decoder.layers):
             name = f"stblock{st_block_idx}_spatial"
@@ -174,15 +178,18 @@ class LitWorldModel(L.LightningModule):
         x_output = x_output[:, :, 1:]
         x_targets = x_targets[:, 1:]
         # loss = F.cross_entropy(x_output, x_targets)
-        loss_masked_THW = F.cross_entropy(x_output, x_targets, reduction='none')
+        loss_masked_THW = F.cross_entropy(x_output, x_targets, reduction="none")
         self.log(f"img_loss/{split}", loss_masked_THW.mean(), rank_zero_only=True)
         acc = accuracy(x_output, x_targets)
         self.log(f"img_acc/{split}", acc, add_dataloader_idx=False, rank_zero_only=True)
-        # multiply loss values by mask instead of indexing them in compute_loss, more computationally efficient
-        loss_masked_tokens = torch.mean(loss_masked_THW * is_masked_THW)
+        # multiply loss values by mask instead of indexing them in compute_loss, more computationally
+        # efficient. Compute the mean masked error.
+        loss_masked_tokens = torch.sum(loss_masked_THW * is_masked_THW) / torch.sum(is_masked_THW)
         self.log(f"masked_img_loss/{split}", loss_masked_tokens, prog_bar=True, rank_zero_only=True)
-        acc_THW = accuracy(x_output, x_targets)
+        acc_THW = torch.sum((x_output.argmax(dim=1) == x_targets) * is_masked_THW).float() / torch.sum(is_masked_THW)
         self.log(f"masked_img_acc/{split}", acc_THW, prog_bar=True, rank_zero_only=True)
+
+        # only optimize on the masked/noised logits?
         return loss_masked_tokens
 
     def training_step(self, batch, batch_idx, split="train"):
@@ -199,13 +206,15 @@ class LitWorldModel(L.LightningModule):
             r = torch.rand(x_THW.size(), device=x_THW.device)
             u01 = torch.rand((), device=x_THW.device)
             random_patches_mask = r < self.max_random_token_rate * u01
-            random_values = torch.randint(low=0, high=self.image_vocab_size, size=x_THW.size(), dtype=torch.long, device=x_THW.device)
+            random_values = torch.randint(low=0, high=self.image_vocab_size, size=x_THW.size(), dtype=torch.long,
+                                          device=x_THW.device)
             x_THW[random_patches_mask] = random_values[random_patches_mask]
 
             x_THW_view = x_THW[:, 1:]
-            
+
             # per-minibatch, per-frame masking probability
-            mask_prob_T = self.min_mask_rate + (self.max_mask_rate - self.min_mask_rate) * torch.rand(x_THW_view.size(0), x_THW_view.size(1), device=x.device)
+            mask_prob_T = self.min_mask_rate + (self.max_mask_rate - self.min_mask_rate) * torch.rand(
+                x_THW_view.size(0), x_THW_view.size(1), device=x.device)
             r = torch.rand(x_THW_view.size(), device=x_THW_view.device)
             mask = r < mask_prob_T.unsqueeze(-1).unsqueeze(-1)
             # masking the view also masks x_TS
@@ -214,7 +223,7 @@ class LitWorldModel(L.LightningModule):
         # Record the loss over masked tokens only to make it more comparable to LLM baselines
         is_masked = mask | random_patches_mask[:, 1:]
         loss = self.compute_loss(x_THW, x, batch_idx, split, is_masked)
-        
+
         return loss
 
     def validation_step(self, batch, batch_idx):

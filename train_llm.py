@@ -39,10 +39,10 @@ def parse_args():
 
     # Data
     parser.add_argument(
-        "--train_data_dir", type=str, required=True, help="Directory containing tokenized data, should have a `metadata.json` and `video.bin`."
+        "--train_data_dir", type=str, default="data/train_v0", help="Directory containing tokenized data, should have a `metadata.json` and `video.bin`."
     )
     parser.add_argument(
-        "--val_data_dir", type=str, required=True, help="Directory containing tokenized data, should have a `metadata.json` and `video.bin`."
+        "--val_data_dir", type=str, default="data/val_v0", help="Directory containing tokenized data, should have a `metadata.json` and `video.bin`."
     )
     parser.add_argument(
         "--window_size",
@@ -197,7 +197,7 @@ def parse_args():
         type=str,
         default="all",
         help=(
-            "The integration to report the results and logs to. Current code assumes `wandb` is being used."
+            'The integration to report the results and logs to. Current code assumes `wandb` is being used.'
             'Use `"all"` (default) to report to all integrations. '
         ),
     )

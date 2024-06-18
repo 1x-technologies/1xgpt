@@ -1,27 +1,26 @@
 #!/usr/bin/env python3
 
-import json
 import argparse
+import json
 from pathlib import Path
 
-import torch
 import numpy as np
+import torch
 from transformers import AutoModelForCausalLM
 
 from data import RawTokenDataset
-
 
 STRIDE = 15
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Finetune a transformers model on a causal language modeling task")
+    parser = argparse.ArgumentParser(description="Generate video using a trained transformers model.")
     parser.add_argument(
         "--val_data_dir", type=str, default="data/val_v0",
         help="A directory with video data, should have a `metadata.json` and `video.bin`."
     )
     parser.add_argument(
-        "--checkpoint_dir", type=str, default="data/model_checkpt",
+        "--checkpoint_dir", type=str, default="data/video_llm",
         help="A directory with the model weights and config.json."
     )
     parser.add_argument(
@@ -50,6 +49,7 @@ def main():
     args = parse_args()
     if args.num_prompt_frames > args.window_size:
         raise ValueError("num_prompt_frames must be less than or equal to window_size")
+
     val_dataset = RawTokenDataset(args.val_data_dir, window_size=args.window_size, stride=STRIDE)
     latent_side_len = val_dataset.metadata["s"]
 
