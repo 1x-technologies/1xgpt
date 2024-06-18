@@ -14,14 +14,14 @@ from genie.genie_world_model import LitWorldModel
 flags.DEFINE_string("train_data_dir", "data/train_v0",
                     "Path to directory containing size.txt, video.bin, actions.bin, segment_ids.bin")
 flags.DEFINE_string("val_data_dir", "data/val_v0", "Path to directory containing validation tokens.")
-flags.DEFINE_integer("batch_size", 4, "Batch size")
+flags.DEFINE_integer("batch_size", 2, "Batch size")
 flags.DEFINE_integer("window_size", 16, "Number of input/output frames")
 flags.DEFINE_integer("stride", 15, "How many frames to skip")
 # TRAINING
 flags.DEFINE_string("root_dir", "data/genie_model", "Root directory for saving summaries and checkpoints")
 flags.DEFINE_string("restore_ckpt", None, "Path to checkpoint to restore from")
 flags.DEFINE_string("name", None, "Experiment name")
-flags.DEFINE_integer("num_layers", default=8, help="Num hidden layers")
+flags.DEFINE_integer("num_layers", default=12, help="Num hidden layers")
 flags.DEFINE_integer("num_heads", default=16, help="Num attention heads")
 flags.DEFINE_integer("d_model", default=1024, help="Hidden size")
 

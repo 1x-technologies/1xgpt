@@ -29,27 +29,12 @@ Each example is a sequence of 16 first-person images from the robot at 2Hz (so 8
 These challenges are largely inspired by the [commavq compression challenge](https://github.com/commaai/commavq).
 
 ## Getting Started
-
- and extract the dataset to `data/train_v0`, `data/val_v0`.
-
 ```
-# install dependencies and download data
+# Install dependencies and download data
 ./build.sh 
 
-# source the Python environment
+# Source the Python environment
 source venv/bin/activate
-
-# train a baseline model
-python train_llm.py --output_dir data/video_llm --model_config 1x-technologies/Llama_1B_v0 --report_to wandb
-
-# generate frames from the baseline
-./generate.py --output_dir data/generated
-
-# evaluate the baseline model
-./evaluate.py --checkpoint_dir data/video_llm
-
-# visualize the generated results
-./visualize.py --token_dir data/generated 
 ```
 
 ## Training GENIE
@@ -57,22 +42,41 @@ python train_llm.py --output_dir data/video_llm --model_config 1x-technologies/L
 This repo provides an implementation of the spatio-temporal transformer and MaskGIT sampler as described in [Genie: Generative Interactive Environments](https://arxiv.org/abs/2402.15391). Note that this implemention only trains on video sequences, not actions (though it is trivial to add this via an additive embedding). To train this baseline, 
 
 ```
-source venv/bin/activate
-pip install -r baselines/requirements.txt
-
 # Train the GENIE model
 python train_st_model.py --root_dir data/genie_model
 
 # Generate frames from trained model
 python genie/generate_genie.py --lightning_checkpoint data/genie_model
-# python genie/generate_genie.py --hf_checkpoint 1x-technologies/GENIE_210M
 
-# visualize generated frames
+# Visualize generated frames
 ./visualize.py --token_dir data/genie_generated --stride 1
 
-# Evaluate
+# Evaluate the trained model
 python genie/evaluate_genie.py --lightning_checkpoint data/genie_model
 
+# Generate and evaluate the 1X baseline model
+python genie/generate_genie.py --hf_checkpoint 1x-technologies/GENIE_210M
+python genie/evaluate_genie.py --hf_checkpoint 1x-technologies/GENIE_210M
+```
+
+
+## Training Llama3-style LLM
+```
+# train a model
+python train_llm.py --output_dir data/video_llm --model_config 1x-technologies/Llama_1B_v0 --report_to wandb
+
+# Generate frames from the model
+./generate.py --checkpoint_dir data/video_llm --output_dir data/generated
+
+# Visualize generated frames
+./visualize.py --token_dir data/generated 
+
+# Evaluate the trained model
+./evaluate.py --checkpoint_dir data/video_llm
+
+# Generate and evaluate the 1X baseline model
+./generate.py --checkpoint_dir 1x-technologies/Llama_1B_v0 --output_dir data/generated
+./evaluate.py --checkpoint_dir 1x-technologies/Llama_1B_v0
 ```
 
 ## Data (Version: 0.0.1)
@@ -100,17 +104,17 @@ After manually reviewing your code, we run evals in a 22.04 + CUDA 12.3 sandboxe
 
 ```
 ./build.sh # installs any dependencies + model weights you need
-./evaluate.py --val_data_dir <PATH-TO-HELD-OUT-DATA>.bin # runs your model on held-out data
+./evaluate.py --val_data_dir <PATH-TO-HELD-OUT-DATA>  # runs your model on held-out data
 ```
 
 ## Leaderboard
 
 All scores are evaluated on our held-out dataset.
 
-| **User**                                                           | **Teacher-Forced CE Loss** | **Teacher-Forced Token Accuracy** | **Autoregressive CE Loss** | **Autoregressive Token Accuracy** | **Autoregressive LPIPS** | **Generation Time\* (secs/frame)** |
-|--------------------------------------------------------------------|----------------------------|-----------------------------------|----------------------------|-----------------------------------|--------------------------|------------------------------------|
-| 1x-technologies/GENIE_210M (`maskgit_steps=1`, `temperature=1e-8`) | N/A                        | N/A                               | 3.18                       | 0.318                             | 0.20                     | 0.076                              |
-| 1x-technologies/Llama_1B_v0                                        | 2.45                       | 0.399                             | 5.04                       | 0.269                             | 0.23                     | 2.22                               |
+| **User**                                  | **Teacher-Forced CE Loss** | **Teacher-Forced Token Accuracy** | **Autoregressive CE Loss** | **Autoregressive Token Accuracy** | **Autoregressive LPIPS** | **Generation Time\* (secs/frame)** |
+|-------------------------------------------|----------------------------|-----------------------------------|----------------------------|-----------------------------------|--------------------------|------------------------------------|
+| 1x-technologies/GENIE_210M (`single_pass`) | N/A                        | N/A                               | 3.18                       | 0.318                             | 0.20                     | 0.076                              |
+| 1x-technologies/Llama_1B_v0               | 2.45                       | 0.399                             | 5.04                       | 0.269                             | 0.23                     | 2.22                               |
 
 *Note that generation time is the time to generate latents on a RTX 4090 GPU, and excludes the time to decode latents to images.
 
