@@ -7,8 +7,12 @@ from genie.attention import SelfAttention
 
 class Mlp(nn.Module):
     def __init__(
-        self, in_features: int, hidden_features: Optional[int] = None, out_features: Optional[int] = None,
-        drop: float = 0.0, bias: bool = True
+        self,
+        in_features: int,
+        hidden_features: Optional[int] = None,
+        out_features: Optional[int] = None,
+        drop: float = 0.0,
+        bias: bool = True
     ) -> None:
         super().__init__()
         self.fc1 = nn.Linear(in_features, hidden_features, bias=bias)

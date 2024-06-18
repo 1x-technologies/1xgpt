@@ -114,9 +114,9 @@ class STWorldModel(nn.Module):
     ):
         # assume we have pre-masked z2...zT with all masks
         assert out_t, "maskgit_generate requires out_t > 0"
-        assert torch.all(prompt_THW[:,
-                         out_t:] == self.image_mask_token), f"when generating z{out_t}, frames {out_t} and later must be masked"
-        T, H, W = prompt_THW.size(1), prompt_THW.size(2), prompt_THW.size(3)
+        assert torch.all(prompt_THW[:,out_t:] == self.image_mask_token), \
+            f"when generating z{out_t}, frames {out_t} and later must be masked"
+
         # this will be modified by maskgit_generate_step
         unmasked = self.init_mask(prompt_THW)
         # unmasked are modified in place on each iteration of this loop

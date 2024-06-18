@@ -27,9 +27,6 @@ WINDOW_SIZE = 16
 STRIDE = 15  # Data is 30 Hz so with stride 15, video is 2 Hz
 LATENT_H, LATENT_W = 20, 20  # Dimensions of the compressed image
 
-DEBUG = False
-SAVE_OUTPUTS = "data/genie/outputs_1_160k.pkl"
-
 
 def parse_args():
     parser = argparse.ArgumentParser(description="")
@@ -110,16 +107,10 @@ class GenieEvaluator:
             inputs_masked = inputs_THW.clone()
             inputs_masked[:, timestep:] = self.model.image_mask_token
 
-            # single forward pass from masked image - for debugging purposes on zero-shot prediction
-            if DEBUG:
-                logits_CTHW = self.model(inputs_masked)
-                logits_CHW = logits_CTHW[:, :-1, timestep]
-                sample_HW = logits_CHW.argmax(dim=1)
-            else:
-                # maskgit sampling
-                sample_HW, logits_CHW = self.model.maskgit_generate(
-                    inputs_masked, out_t=timestep, maskgit_steps=self.maskgit_steps, temperature=self.temperature
-                )
+            # maskgit sampling
+            sample_HW, logits_CHW = self.model.maskgit_generate(
+                inputs_masked, out_t=timestep, maskgit_steps=self.maskgit_steps, temperature=self.temperature
+            )
 
             all_samples.append(sample_HW)
             all_logits.append(logits_CHW)
@@ -168,9 +159,6 @@ def main():
     lpips_alex = lpips.LPIPS(net="alex")  # Calculate LPIPS w/ AlexNet, which is the fastest model out of their options
     metrics = defaultdict(list)
 
-    if SAVE_OUTPUTS is not None:
-        all_outputs = []
-
     for batch in tqdm(dataloader):
         reshaped_input_ids = rearrange(batch["input_ids"], "b (t h w) -> b t h w", t=WINDOW_SIZE, h=LATENT_H,
                                        w=LATENT_W)
@@ -196,14 +184,6 @@ def main():
         metrics["pred_lpips"].extend(compute_lpips(decoded_gtruth[:, 1:], pred_frames, lpips_alex))
         
         print({key: np.mean(val) for key, val in metrics.items() if len(val) > 0})
-        if SAVE_OUTPUTS is not None:
-            os.makedirs(os.path.dirname(SAVE_OUTPUTS), exist_ok=True)
-            all_outputs.append((pred_frames, decoded_gtruth, logits, reshaped_input_ids))
-
-    if SAVE_OUTPUTS is not None:
-        with open(SAVE_OUTPUTS, "wb") as f:
-            import pickle
-            pickle.dump(all_outputs, f)
 
 
 if __name__ == "__main__":
