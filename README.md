@@ -30,7 +30,7 @@ These challenges are largely inspired by the [commavq compression challenge](htt
 
 ## Getting Started
 
-[Download the dataset](https://www.kaggle.com/datasets/onextech/world-model) from Kaggle and extract the dataset to `data/train_v0`, `data/val_v0`, `data/decoder-checkpoint-111000`. 
+[Download the dataset on Huggingface](https://huggingface.co/datasets/1x-technologies/worldmodel) and extract the dataset to `data/train_v0`, `data/val_v0`.
 
 ```
 # install dependencies
