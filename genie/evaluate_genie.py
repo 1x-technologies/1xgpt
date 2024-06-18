@@ -19,7 +19,7 @@ from transformers import default_data_collator
 sys.path.append(os.getcwd())
 from data import RawTokenDataset
 from visualize import decode_latents_wrapper
-from evaluate import decode_tokens, compute_loss_and_acc, compute_lpips
+from evaluate import decode_tokens, compute_loss_and_acc, compute_lpips, AvgMetric
 from genie.genie_world_model import LitWorldModel
 
 # Hardcoded values for the final dataset
@@ -157,9 +157,10 @@ def main():
     dataloader = DataLoader(val_dataset, collate_fn=default_data_collator, batch_size=args.batch_size)
 
     lpips_alex = lpips.LPIPS(net="alex")  # Calculate LPIPS w/ AlexNet, which is the fastest model out of their options
-    metrics = defaultdict(list)
+    metrics = defaultdict(AvgMetric)
 
     for batch in tqdm(dataloader):
+        batch_size = batch["input_ids"].size(0)
         reshaped_input_ids = rearrange(batch["input_ids"], "b (t h w) -> b t h w", t=WINDOW_SIZE, h=LATENT_H,
                                        w=LATENT_W)
 
@@ -167,23 +168,23 @@ def main():
 
         samples, logits = evaluator.predict_zframe_logits(batch["input_ids"])
         frames_per_batch = (WINDOW_SIZE - 1) * batch["input_ids"].size(0)
-        metrics["gen_time"].append((time.time() - start_time) / frames_per_batch)
+        metrics["gen_time"].update((time.time() - start_time) / frames_per_batch, batch_size)
 
         loss, _ = compute_loss_and_acc(batch["input_ids"], logits)
 
         acc = (reshaped_input_ids[:, 1:].to("cuda") == samples).float().mean().item()
-        
-        metrics["loss"].append(loss)
-        metrics["acc"].append(acc)
+
+        metrics["loss"].update(loss, batch_size)
+        metrics["acc"].update(acc, batch_size)
 
         start_time = time.time()
         pred_frames = evaluator.predict_next_frames(samples)
-        metrics["dec_time"].append((time.time() - start_time) / frames_per_batch)
+        metrics["dec_time"].update((time.time() - start_time) / frames_per_batch, batch_size)
 
         decoded_gtruth = decode_tokens(reshaped_input_ids, decode_latents)
-        metrics["pred_lpips"].extend(compute_lpips(decoded_gtruth[:, 1:], pred_frames, lpips_alex))
+        metrics["pred_lpips"].update_list(compute_lpips(decoded_gtruth[:, 1:], pred_frames, lpips_alex))
         
-        print({key: np.mean(val) for key, val in metrics.items() if len(val) > 0})
+        print({key: val.mean() for key, val in metrics.items()})
 
 
 if __name__ == "__main__":

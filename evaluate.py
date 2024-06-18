@@ -41,6 +41,23 @@ def parse_args():
     return parser.parse_args()
 
 
+class AvgMetric:
+    def __init__(self):
+        self.sum = 0
+        self.count = 0
+
+    def update(self, val, batch_size=1):
+        self.sum += val * batch_size
+        self.count += batch_size
+
+    def update_list(self, flat_vals):
+        self.sum += sum(flat_vals)
+        self.count += len(flat_vals)
+
+    def mean(self):
+        return self.sum / self.count
+
+
 class LlamaEvaluator:
     def __init__(self, checkpoint_dir: str, decode_latents: Callable, device="cuda"):
         super().__init__()
@@ -198,40 +215,41 @@ def main():
     dataloader = DataLoader(val_dataset, collate_fn=default_data_collator, batch_size=args.batch_size,)
 
     lpips_alex = lpips.LPIPS(net="alex")  # Calculate LPIPS w/ AlexNet, which is the fastest model out of their options
-    metrics = defaultdict(list)
+    metrics = defaultdict(AvgMetric)
 
     for i, batch in enumerate(tqdm(dataloader)):
+        batch_size = batch["input_ids"].size(0)
         reshaped_input_ids = rearrange(batch["input_ids"], "b (t h w) -> b t h w", t=WINDOW_SIZE, h=LATENT_H)
         frames_per_batch = (WINDOW_SIZE - 1) * batch["input_ids"].size(0)
 
         start_time = time.time()
         logits = evaluator.predict_zframe_logits(batch["input_ids"])
-        metrics["gen_time"].append((time.time() - start_time) / frames_per_batch)
+        metrics["gen_time"].update((time.time() - start_time) / frames_per_batch, batch_size)
 
         if logits is not None:
             loss, acc = compute_loss_and_acc(batch["input_ids"], logits)
-            metrics["loss"].append(loss)
-            metrics["acc"].append(acc)
+            metrics["loss"].update(loss, batch_size)
+            metrics["acc"].update(acc, batch_size)
 
         start_time = time.time()
         pred_frames = evaluator.predict_next_frames(logits=logits)
-        metrics["dec_time"].append((time.time() - start_time) / frames_per_batch)
+        metrics["dec_time"].update((time.time() - start_time) / frames_per_batch, batch_size)
 
         logits_teacher = evaluator.predict_zframe_logits_teacher(batch["input_ids"])
         if logits_teacher is not None:
             loss_teacher, acc_teacher = compute_loss_and_acc(batch["input_ids"], logits_teacher)
-            metrics["loss_teacher"].append(loss_teacher)
-            metrics["acc_teacher"].append(acc_teacher)
+            metrics["loss_teacher"].update(loss_teacher, batch_size)
+            metrics["acc_teacher"].update(acc_teacher, batch_size)
 
         decoded_gtruth = decode_tokens(reshaped_input_ids, decode_latents)
         labels, prev_frames = decoded_gtruth[:, 1:], decoded_gtruth[:, :-1]
         redecoded_labels = decode_tokens(reshaped_input_ids[:, 1:], decode_latents)
 
-        metrics["pred_lpips"].extend(compute_lpips(labels, pred_frames, lpips_alex))
-        metrics["copy_lpips"].extend(compute_lpips(labels, prev_frames, lpips_alex))
-        metrics["gtruth_lpips"].extend(compute_lpips(labels, redecoded_labels, lpips_alex))
+        metrics["pred_lpips"].update_list(compute_lpips(labels, pred_frames, lpips_alex))
+        metrics["copy_lpips"].update_list(compute_lpips(labels, prev_frames, lpips_alex))
+        metrics["gtruth_lpips"].update_list(compute_lpips(labels, redecoded_labels, lpips_alex))
 
-        print({key: np.mean(val) for key, val in metrics.items()})
+        print({key: val.mean() for key, val in metrics.items()})
 
 
 if __name__ == "__main__":

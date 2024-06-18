@@ -64,13 +64,13 @@ pip install -r baselines/requirements.txt
 python train_st_model.py --root_dir data/genie_model
 
 # Generate frames from trained model
-python baselines/generate_genie.py --checkpoint <PATH_TO_CKPT?>
+python genie/generate_genie.py --checkpoint <PATH_TO_CKPT?>
 
 # visualize generated frames
 ./visualize.py --token_dir data/genie_generated --stride 1
 
 # Evaluate
-python baselines/evaluate_genie.py --val_data_dir data/val_v0 --checkpoint <PATH_TO_CKPT?>
+python genie/evaluate_genie.py --checkpoint <PATH_TO_CKPT?>
 
 ```
 
@@ -106,10 +106,10 @@ After manually reviewing your code, we run evals in a 22.04 + CUDA 12.3 sandboxe
 
 All scores are evaluated on our held-out dataset.
 
-|**User**| **Teacher-Forced CE Loss** | **Teacher-Forced Token Accuracy** | **Autoregressive CE Loss** | **Autoregressive Token Accuracy** | **Autoregressive LPIPS** | **Generation Time\* (secs/frame)** |
-|-|----------------------------|-----------------------------------|----------------------------|-----------------------------------|--------------------------|------------------------------------|
-|1x-technologies/GENIE_210M| N/A                        | N/A                               | 3.17                       | 0.319                             | 0.20                     | 0.085                              |
-|1x-technologies/Llama_1B_v0| 2.45                       | 0.399                             | 5.04                       | 0.269                             | 0.23                     | 2.22                               |
+| **User**                                                           | **Teacher-Forced CE Loss** | **Teacher-Forced Token Accuracy** | **Autoregressive CE Loss** | **Autoregressive Token Accuracy** | **Autoregressive LPIPS** | **Generation Time\* (secs/frame)** |
+|--------------------------------------------------------------------|----------------------------|-----------------------------------|----------------------------|-----------------------------------|--------------------------|------------------------------------|
+| 1x-technologies/GENIE_210M (`maskgit_steps=1`, `temperature=1e-8`) | N/A                        | N/A                               | 3.17                       | 0.319                             | 0.20                     | 0.085                              |
+| 1x-technologies/Llama_1B_v0                                        | 2.45                       | 0.399                             | 5.04                       | 0.269                             | 0.23                     | 2.22                               |
 
 *Note that generation time is the time to generate latents on a RTX 4090 GPU, and excludes the time to decode latents to images.
 
