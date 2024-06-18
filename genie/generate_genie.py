@@ -50,7 +50,7 @@ def parse_args():
         help="If True, takes argmax of single forward pass on fully masked inputs"
     )
     parser.add_argument(
-        "--num_layers", type=int, default=8, help="Num hidden layers"
+        "--num_layers", type=int, default=12, help="Num hidden layers"
     )
     parser.add_argument(
         "--num_heads", type=int, default=16, help="Num attention heads"
@@ -85,7 +85,7 @@ def main():
         T=args.window_size, S=latent_side_len ** 2,
         image_vocab_size=1001, num_layers=args.num_layers,
         num_heads=args.num_heads, d_model=args.d_model
-    )
+    ).to("cuda")
 
     model.eval()
 

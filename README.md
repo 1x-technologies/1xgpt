@@ -29,6 +29,7 @@ Each example is a sequence of 16 first-person images from the robot at 2Hz (so 8
 These challenges are largely inspired by the [commavq compression challenge](https://github.com/commaai/commavq).
 
 ## Getting Started
+We require `Python 3.10` or later. This code was tested with `Python 3.10.12`
 
 ```
 # Install dependencies and download data
@@ -44,20 +45,21 @@ This repo provides an implementation of the spatio-temporal transformer and Mask
 
 ```
 # Train the GENIE model
-python train_st_model.py --root_dir data/genie_model
+python train_st_model.py --root_dir data/genie_model --num_layers 12
+
 
 # Generate frames from trained model
-python genie/generate_genie.py --lightning_checkpoint data/genie_model
+python genie/generate_genie.py --lightning_checkpoint <Path to Lightning checkpoint> --num_layers 12
 
 # Visualize generated frames
-./visualize.py --token_dir data/genie_generated --stride 1
+./visualize.py --token_dir data/genie_generated
 
 # Evaluate the trained model
-python genie/evaluate_genie.py --lightning_checkpoint data/genie_model
+python genie/evaluate_genie.py --lightning_checkpoint <Path to Lightning checkpoint>
 
 # Generate and evaluate the 1X baseline model
-python genie/generate_genie.py --hf_checkpoint 1x-technologies/GENIE_210M
-python genie/evaluate_genie.py --hf_checkpoint 1x-technologies/GENIE_210M
+python genie/generate_genie.py --hf_checkpoint 1x-technologies/GENIE_210M --single_pass
+python genie/evaluate_genie.py --hf_checkpoint 1x-technologies/GENIE_210M --single_pass
 ```
 
 
@@ -112,10 +114,10 @@ After manually reviewing your code, we run evals in a 22.04 + CUDA 12.3 sandboxe
 
 All scores are evaluated on our held-out dataset.
 
-| **User**                                  | **Teacher-Forced CE Loss** | **Teacher-Forced Token Accuracy** | **Autoregressive CE Loss** | **Autoregressive Token Accuracy** | **Autoregressive LPIPS** | **Generation Time\* (secs/frame)** |
-|-------------------------------------------|----------------------------|-----------------------------------|----------------------------|-----------------------------------|--------------------------|------------------------------------|
-| 1x-technologies/GENIE_210M (`single_pass`) | N/A                        | N/A                               | 3.18                       | 0.318                             | 0.20                     | 0.076                              |
-| 1x-technologies/Llama_1B_v0               | 2.45                       | 0.399                             | 5.04                       | 0.269                             | 0.23                     | 2.22                               |
+| **User**                                     | **Teacher-Forced CE Loss** | **Teacher-Forced Token Accuracy** | **Autoregressive CE Loss** | **Autoregressive Token Accuracy** | **Autoregressive LPIPS** | **Generation Time\* (secs/frame)** |
+|----------------------------------------------|----------------------------|-----------------------------------|----------------------------|-----------------------------------|--------------------------|------------------------------------|
+| 1x-technologies/GENIE_210M (`--single_pass`) | N/A                        | N/A                               | 3.18                       | 0.318                             | 0.20                     | 0.076                              |
+| 1x-technologies/Llama_1B_v0                  | 2.46                       | 0.396                             | 5.08                       | 0.267                             | 0.23                     | 2.31                               |
 
 *Note that generation time is the time to generate latents on a RTX 4090 GPU, and excludes the time to decode latents to images.
 
