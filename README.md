@@ -22,15 +22,13 @@ Beyond the scope of these challenges, we hope that this dataset will be helpful 
 
 Each example is a sequence of 16 first-person images from the robot at 2Hz (so 8 seconds total), and your goal is to predict the next image given the previous ones.
 
-- **Compression Challenge ($10k prize)**: To participate in the challenge, fill in your model predictions in `evaluate.py`. Criteria will be released shortly.
+- **Compression Challenge ($10k prize)**: Predict the discrete distribution of tokens in the next image. To participate in the challenge, fill in your model predictions in `evaluate.py`. Criteria will be released shortly.
 - **Sampling Challenge ($10k prize)**: Future prediction methods are not necessarily restricted to next-logit prediction. You can, for example, use methods like GANs, Diffusion, and MaskGIT to generate future images. Criteria will be released shortly.
 - **Evaluation Challenge (upcoming)**: given a set of N policies, $\pi_1, \pi_2, ... \pi_N$, where each policy $\pi_i(a_t|z_t)$ predicts action tokens from image tokens, can you evaluate all of the policies inside a "world model" $p(z_{t+1}|z_t, a_t)$ and tell us the ranked order of which policy is the best?
 
 These challenges are largely inspired by the [commavq compression challenge](https://github.com/commaai/commavq).
 
 ## Getting Started
-
- and extract the dataset to `data/train_v0`, `data/val_v0`.
 
 ```
 # install dependencies and download data
@@ -120,6 +118,14 @@ and the model should predict the tokens of the following frame.
 and the model should auto-regressively predict all 20x20 for frame $t$.
 - (If applicable), **Teacher-forced** matches the typical training scenario with causal masking. 
 It is simply a next token prediction task where all previous tokens, including any in the current frame, are ground-truth tokens as opposed to autoregressively predicted tokens.
+
+## Help us Improve the Challenge!
+
+Beyond the World Model Challenge, we also want to make the challenges and datasets more useful for *your* research questions. Want more data interacting with humans? More safety-critical tasks like carrying cups of hot coffee without spilling? More dextrous tool use? Robots working with other robots? Robots dressing themselves in the mirror? Think of 1X as the operations team for getting you high quality humanoid data in extremely diverse scenarios.
+
+Email challenge@1x.tech with your requests (and why you think the data is important) and we will try to include it in a future data release. You can also discuss your data questions with the community on [Discord](https://discord.gg/UMnzbTkw). 
+
+We also welcome donors to help us increase the bounty.
 
 
 ## Citation
