@@ -20,8 +20,8 @@ def parse_args():
         help="A directory with video data, should have a `metadata.json` and `video.bin`."
     )
     parser.add_argument(
-        "--checkpoint_dir", type=str, default="data/video_llm",
-        help="A directory with the model weights and config.json."
+        "--checkpoint_dir", type=str, default="1x-technologies/Llama_1B_v0",
+        help="A directory with the model weights and config.json, or HF model."
     )
     parser.add_argument(
         "--output_dir", type=str, default="data/generated", help="Directory to save generated outputs."

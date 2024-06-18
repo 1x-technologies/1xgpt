@@ -153,8 +153,8 @@ def main():
     args = parse_args()
 
     val_dataset = RawTokenDataset(args.val_data_dir, window_size=WINDOW_SIZE, stride=STRIDE)
-    wrapped_decode_latents = decode_latents_wrapper(unet_checkpoint_path=val_dataset.metadata["unet"])
-    evaluator = GenieEvaluator(args, wrapped_decode_latents)
+    decode_latents = decode_latents_wrapper(unet_checkpoint_path=val_dataset.metadata["unet"])
+    evaluator = GenieEvaluator(args, decode_latents)
 
     # To save time, only evaluate on each chunk once instead of using a sliding window.
     val_dataset = Subset(
@@ -192,7 +192,7 @@ def main():
         pred_frames = evaluator.predict_next_frames(samples)
         metrics["dec_time"].append((time.time() - start_time) / frames_per_batch)
 
-        decoded_gtruth = decode_tokens(reshaped_input_ids, wrapped_decode_latents)
+        decoded_gtruth = decode_tokens(reshaped_input_ids, decode_latents)
         metrics["pred_lpips"].extend(compute_lpips(decoded_gtruth[:, 1:], pred_frames, lpips_alex))
         
         print({key: np.mean(val) for key, val in metrics.items() if len(val) > 0})

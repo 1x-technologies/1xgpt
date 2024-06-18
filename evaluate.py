@@ -30,8 +30,8 @@ def parse_args():
         help="A directory with video data, should have a `metadata.json` and `video.bin`."
     )
     parser.add_argument(
-        "--checkpoint_dir", type=str, default="data/video_llm",
-        help="A directory with the model weights and config.json."
+        "--checkpoint_dir", type=str, default="1x-technologies/Llama_1B_v0",
+        help="A directory with the model weights and config.json, or HF model."
     )
     parser.add_argument(
         "--batch_size", type=int, default=2,
@@ -184,8 +184,8 @@ def compute_lpips(frames_a: torch.ByteTensor, frames_b: torch.ByteTensor, lpips_
 def main():
     args = parse_args()
 
-    decode_latents = decode_latents_wrapper()
     val_dataset = RawTokenDataset(args.val_data_dir, window_size=WINDOW_SIZE, stride=STRIDE)
+    decode_latents = decode_latents_wrapper(unet_checkpoint_path=val_dataset.metadata["unet"])
     evaluator = LlamaEvaluator(args.checkpoint_dir, decode_latents)
 
     # To save time, only evaluate on each chunk once instead of using a sliding window.

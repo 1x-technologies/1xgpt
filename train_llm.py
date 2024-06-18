@@ -72,7 +72,8 @@ def parse_args():
         "--model_config",
         type=str,
         required=True,
-        help="Huggingface-style model config json",
+        help="Huggingface-style model config json. "
+             "E.g. https://huggingface.co/1x-technologies/Llama_1B_v0/blob/main/config.json",
     )
     parser.add_argument(
         "--warmstart_path",

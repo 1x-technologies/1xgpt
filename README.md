@@ -30,10 +30,10 @@ These challenges are largely inspired by the [commavq compression challenge](htt
 
 ## Getting Started
 
-[Download the dataset on Huggingface](https://huggingface.co/datasets/1x-technologies/worldmodel) and extract the dataset to `data/train_v0`, `data/val_v0`.
+ and extract the dataset to `data/train_v0`, `data/val_v0`.
 
 ```
-# install dependencies
+# install dependencies and download data
 ./build.sh 
 
 # source the Python environment
@@ -75,8 +75,8 @@ python baselines/evaluate_genie.py --val_data_dir data/val_v0 --checkpoint <PATH
 ```
 
 ## Data (Version: 0.0.1)
-
-The full dataset is stored in the `train_v0` directory:
+[Download the dataset on Huggingface](https://huggingface.co/datasets/1x-technologies/worldmodel)
+The full dataset is stored in the `data/train_v0` directory:
 
 - **video.bin** - 20x20 image patches at 30hz, each patch is vector-quantized into 1000 possible integer values. These can be decoded into 160x160 RGB images.
 - **actions.bin** - encoded robot whole body actions for each image frame, vector-quantized into 1000 possible integer values. You may want to use this to train action-conditioned world models. Raw actions (joint angles, driving velocities, gripper closures, neck pitch) are provided in the `actions/` subdirectory. 
@@ -107,9 +107,9 @@ After manually reviewing your code, we run evals in a 22.04 + CUDA 12.3 sandboxe
 All scores are evaluated on our held-out dataset.
 
 |**User**| **Teacher-Forced CE Loss** | **Teacher-Forced Token Accuracy** | **Autoregressive CE Loss** | **Autoregressive Token Accuracy** | **Autoregressive LPIPS** | **Generation Time\* (secs/frame)** |
-|-|----------------------------|-----------------------------------|----------------------------|-----------------------------------|-------------------------|------------------------------------|
-|kevin| 2.34                       | 0.411                             | 4.62                       | 0.299                             | 0.166                   | 2.14                               |
-|eric|N/A|N/A|3.68|0.294|0.20|1.13|
+|-|----------------------------|-----------------------------------|----------------------------|-----------------------------------|--------------------------|------------------------------------|
+|1x-technologies/GENIE_210M| N/A                        | N/A                               | 3.17                       | 0.319                             | 0.20                     | 0.085                              |
+|1x-technologies/Llama_1B_v0| 2.45                       | 0.399                             | 5.04                       | 0.269                             | 0.23                     | 2.22                               |
 
 *Note that generation time is the time to generate latents on a RTX 4090 GPU, and excludes the time to decode latents to images.
 
