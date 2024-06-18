@@ -47,7 +47,7 @@ def parse_args():
         help="Batch size, current script only supports a single GPU."
     )
     parser.add_argument(
-        "--num_layers", type=int, default=8, help="Num hidden layers"
+        "--num_layers", type=int, default=12, help="Num hidden layers"
     )
     parser.add_argument(
         "--num_heads", type=int, default=16, help="Num attention heads"
@@ -60,6 +60,10 @@ def parse_args():
     )
     parser.add_argument(
         "--temperature", type=float, default=1., help="Sampling temperature."
+    )
+    parser.add_argument(
+        "--single_pass", action="store_true",
+        help="If True, takes argmax of single forward pass on fully masked inputs."
     )
 
     return parser.parse_args()
@@ -80,9 +84,9 @@ class GenieEvaluator:
 
         self.wrapped_decode_latents = wrapped_decode_latents
         self.device = device
-        self.maskgit_steps, self.temperature = args.maskgit_steps, args.temperature
+        self.args = args
 
-    def predict_zframe_logits(self, input_ids: torch.LongTensor) -> torch.Tensor:
+    def predict_zframe_logits(self, input_ids: torch.LongTensor) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Conditioned on each prefix: [frame_0], [frame_0, frame_1], ..., [frame_0, frame_1, ... frame_{T-1}],
         predict the tokens in the following frame: [pred_frame_1, pred_frame_2, ..., pred_frame_T].
@@ -107,10 +111,16 @@ class GenieEvaluator:
             inputs_masked = inputs_THW.clone()
             inputs_masked[:, timestep:] = self.model.image_mask_token
 
-            # maskgit sampling
-            sample_HW, logits_CHW = self.model.maskgit_generate(
-                inputs_masked, out_t=timestep, maskgit_steps=self.maskgit_steps, temperature=self.temperature
-            )
+            if self.args.single_pass:
+                logits_CTHW = self.model(inputs_masked)
+                logits_CHW = logits_CTHW[:, :-1, timestep]
+                sample_HW = logits_CHW.argmax(dim=1)
+            else:
+                # maskgit sampling
+                sample_HW, logits_CHW = self.model.maskgit_generate(
+                    inputs_masked, out_t=timestep, maskgit_steps=self.args.maskgit_steps,
+                    temperature=self.args.temperature
+                )
 
             all_samples.append(sample_HW)
             all_logits.append(logits_CHW)

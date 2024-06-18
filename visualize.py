@@ -33,7 +33,7 @@ def parse_args():
     parser.add_argument(
         "--unet_checkpoint_path",
         type=str,
-        default="data/checkpoint-111000",
+        default="1x-technologies/worldmodel_unet_v0",
         help="Path to the pretrained UNet checkpoint.",
     )
     parser.add_argument(
