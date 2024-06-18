@@ -7,10 +7,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 from diffusers.optimization import get_scheduler
 from einops import rearrange
-from torchmetrics.functional import accuracy
+from huggingface_hub import PyTorchModelHubMixin
 from tqdm import tqdm
 
-from baselines.st_transformer import STTransformerDecoder
+from genie.st_transformer import STTransformerDecoder
 
 
 def accuracy(logits, targets):
@@ -130,7 +130,7 @@ class STWorldModel(nn.Module):
         return sample_HW, logits_CHW
 
 
-class LitWorldModel(L.LightningModule):
+class LitWorldModel(L.LightningModule, PyTorchModelHubMixin):
     def __init__(self,
         T,
         S,
@@ -248,3 +248,19 @@ class LitWorldModel(L.LightningModule):
                 "interval": "step",
             },
         }
+
+    @classmethod
+    def load_model(cls, hf_checkpoint=None, lightning_checkpoint=None, **kwargs):
+        """
+        kwargs: extra arguments passed to `LitWorldModel` when loading from `lightning_checkpoint`, like
+            `num_layers`, `num_heads`
+        """
+        assert (hf_checkpoint is not None) ^ (lightning_checkpoint is not None), \
+            "Exactly one of `hf_checkpoint` and `lightning_checkpoint` should be provided."
+
+        if hf_checkpoint is not None:
+            return LitWorldModel.from_pretrained(hf_checkpoint).model
+        else:
+            return LitWorldModel.load_from_checkpoint(
+                lightning_checkpoint, **kwargs
+            ).model

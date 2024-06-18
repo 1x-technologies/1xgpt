@@ -96,7 +96,7 @@ def export_to_gif(frames: list, output_gif_path: str, fps: int):
 
 def decode_latents_wrapper(pretrained_model_name_or_path="timbrooks/instruct-pix2pix",
                            unet_checkpoint_path="data/checkpoint-111000", device="cuda",
-                           max_images=360):
+                           max_images=5000):
     # VAE does image decoding
     vae = AutoencoderKL.from_pretrained(
         pretrained_model_name_or_path,
@@ -105,7 +105,6 @@ def decode_latents_wrapper(pretrained_model_name_or_path="timbrooks/instruct-pix
 
     unet = UNet2DConditionModel2.from_pretrained(
         unet_checkpoint_path,
-        subfolder="unet",
         vector_quantize=False,
     ).to(device=device, dtype=torch.bfloat16)
 

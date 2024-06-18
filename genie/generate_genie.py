@@ -11,7 +11,7 @@ import numpy as np
 
 sys.path.append(os.getcwd())
 from data import RawTokenDataset
-from baselines.genie_world_model import LitWorldModel
+from genie.genie_world_model import LitWorldModel
 
 STRIDE = 15
 
@@ -23,9 +23,12 @@ def parse_args():
         help="A directory with video data, should have a `metadata.json` and `video.bin` We generate using the first frames of this dataset."
     )
     parser.add_argument(
-        "--checkpoint", type=str,
-        default="data/genie_model/lightning_logs/version_0/checkpoints/epoch=0-step=97000.ckpt",
-        help="Path to a Lightning checkpoint."
+        "--hf_checkpoint", type=str,
+        help="Path to a HuggingFace checkpoint."
+    )
+    parser.add_argument(
+        "--lightning_checkpoint", type=str,
+        help="Path to a local Lightning checkpoint."
     )
     parser.add_argument(
         "--output_dir", type=str, default="data/genie_generated", help="Directory to save generated outputs."
@@ -64,6 +67,7 @@ def parse_args():
 
     return parser.parse_args()
 
+
 @torch.no_grad()
 def main():
     args = parse_args()
@@ -76,9 +80,13 @@ def main():
                                                                      latent_side_len).to("cuda")
 
     # Load the model checkpoint
-    model = LitWorldModel.load_from_checkpoint(args.checkpoint, T=args.window_size, S=latent_side_len ** 2,
-                                               image_vocab_size=1001, num_layers=args.num_layers,
-                                               num_heads=args.num_heads, d_model=args.d_model).model
+    model = LitWorldModel.load_model(
+        hf_checkpoint=args.hf_checkpoint, lightning_checkpoint=args.lightning_checkpoint,
+        T=args.window_size, S=latent_side_len ** 2,
+        image_vocab_size=1001, num_layers=args.num_layers,
+        num_heads=args.num_heads, d_model=args.d_model
+    )
+
     model.eval()
 
     samples = []

@@ -8,7 +8,7 @@ from lightning.pytorch.callbacks import ModelCheckpoint
 from torch.utils.data import DataLoader
 
 from data import RawTokenDataset
-from baselines.genie_world_model import LitWorldModel
+from genie.genie_world_model import LitWorldModel
 
 # DATA
 flags.DEFINE_string("train_data_dir", "data/train_v0",

@@ -20,7 +20,7 @@ sys.path.append(os.getcwd())
 from data import RawTokenDataset
 from visualize import decode_latents_wrapper
 from evaluate import decode_tokens, compute_loss_and_acc, compute_lpips
-from baselines.genie_world_model import LitWorldModel
+from genie.genie_world_model import LitWorldModel
 
 # Hardcoded values for the final dataset
 WINDOW_SIZE = 16
@@ -38,8 +38,12 @@ def parse_args():
         help="A directory with video data, should have a `metadata.json` and `video.bin`."
     )
     parser.add_argument(
-        "--checkpoint", type=str, required=True,
-        help="Path to a Lightning checkpoint."
+        "--hf_checkpoint", type=str,
+        help="Path to a HuggingFace checkpoint."
+    )
+    parser.add_argument(
+        "--lightning_checkpoint", type=str,
+        help="Path to a local Lightning checkpoint."
     )
     parser.add_argument(
         "--batch_size", type=int, default=16,
@@ -67,9 +71,14 @@ def parse_args():
 class GenieEvaluator:
     def __init__(self, args, wrapped_decode_latents, device="cuda"):
         super().__init__()
-        self.model = LitWorldModel.load_from_checkpoint(args.checkpoint, T=WINDOW_SIZE, S=LATENT_H * LATENT_W,
-                                                        image_vocab_size=1001, num_layers=args.num_layers,
-                                                        num_heads=args.num_heads, d_model=args.d_model).model
+
+        self.model = LitWorldModel.load_model(
+            hf_checkpoint=args.hf_checkpoint, lightning_checkpoint=args.lightning_checkpoint,
+            T=WINDOW_SIZE, S=LATENT_H * LATENT_W,
+            image_vocab_size=1001, num_layers=args.num_layers,
+            num_heads=args.num_heads, d_model=args.d_model
+        ).to(device)
+
         self.model.eval()
 
         self.wrapped_decode_latents = wrapped_decode_latents
@@ -143,8 +152,8 @@ class GenieEvaluator:
 def main():
     args = parse_args()
 
-    wrapped_decode_latents = decode_latents_wrapper()
     val_dataset = RawTokenDataset(args.val_data_dir, window_size=WINDOW_SIZE, stride=STRIDE)
+    wrapped_decode_latents = decode_latents_wrapper(unet_checkpoint_path=val_dataset.metadata["unet"])
     evaluator = GenieEvaluator(args, wrapped_decode_latents)
 
     # To save time, only evaluate on each chunk once instead of using a sliding window.

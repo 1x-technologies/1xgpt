@@ -2,7 +2,7 @@ from torch import nn, Tensor
 from typing import Optional
 from einops import rearrange
 
-from baselines.attention import SelfAttention
+from genie.attention import SelfAttention
 
 
 class Mlp(nn.Module):
