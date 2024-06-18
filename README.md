@@ -1,10 +1,15 @@
 # 1X World Model Challenge
 
-To accelerate progress in general purpose robotics, we're announcing a World Model competition, where the task is to predict future first-person observations of the [EVE Android](https://www.1x.tech/androids/eve). We provide over 100 hours of vector-quantized image and action tokens collected from operating EVE at 1X offices, baseline world models (LLM, GENIE), and a frame-level diffusion decoder to decode vector-quantized images into 160x160 images. See below for details on cash prizes.
+Progress in video generation may soon make it possible to evaluate robot policies in a completely learned world model. An end-to-end learned simulator of millions of robot environments would greatly accelerate progress in general-purpose robotics and provide a useful signal for scaling data and compute.
+
+To accelerate progress in learned simulators for robots, we're announcing a World Model competition, where the task is to predict future first-person observations of the [EVE Android](https://www.1x.tech/androids/eve). We provide over 100 hours of vector-quantized image and action tokens collected from operating EVE at 1X offices, baseline world models (LLM, GENIE), and a frame-level diffusion decoder to decode vector-quantized images into 160x160 images. See below for details on cash prizes.
 
 Beyond the scope of these challenges, we hope that this dataset will be helpful to roboticists who want to experiment with a diverse set of general-purpose robotics data in human environments. A sufficiently powerful world model will allow anyone to access a "neurally-simulated EVE".
 
-[Download the Dataset on Kaggle](https://www.kaggle.com/datasets/onextech/world-model)
+[Dataset on Huggingface](https://huggingface.co/datasets/1x-technologies/worldmodel)
+
+[Join the Discord](https://discord.gg/UMnzbTkw)
+
 
 |||||||||
 |---|---|---|---|---|---|---|---|
