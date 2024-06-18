@@ -64,13 +64,14 @@ pip install -r baselines/requirements.txt
 python train_st_model.py --root_dir data/genie_model
 
 # Generate frames from trained model
-python genie/generate_genie.py --checkpoint <PATH_TO_CKPT?>
+python genie/generate_genie.py --lightning_checkpoint data/genie_model
+# python genie/generate_genie.py --hf_checkpoint 1x-technologies/GENIE_210M
 
 # visualize generated frames
 ./visualize.py --token_dir data/genie_generated --stride 1
 
 # Evaluate
-python genie/evaluate_genie.py --checkpoint <PATH_TO_CKPT?>
+python genie/evaluate_genie.py --lightning_checkpoint data/genie_model
 
 ```
 
@@ -108,7 +109,7 @@ All scores are evaluated on our held-out dataset.
 
 | **User**                                                           | **Teacher-Forced CE Loss** | **Teacher-Forced Token Accuracy** | **Autoregressive CE Loss** | **Autoregressive Token Accuracy** | **Autoregressive LPIPS** | **Generation Time\* (secs/frame)** |
 |--------------------------------------------------------------------|----------------------------|-----------------------------------|----------------------------|-----------------------------------|--------------------------|------------------------------------|
-| 1x-technologies/GENIE_210M (`maskgit_steps=1`, `temperature=1e-8`) | N/A                        | N/A                               | 3.17                       | 0.319                             | 0.20                     | 0.085                              |
+| 1x-technologies/GENIE_210M (`maskgit_steps=1`, `temperature=1e-8`) | N/A                        | N/A                               | 3.18                       | 0.318                             | 0.20                     | 0.076                              |
 | 1x-technologies/Llama_1B_v0                                        | 2.45                       | 0.399                             | 5.04                       | 0.269                             | 0.23                     | 2.22                               |
 
 *Note that generation time is the time to generate latents on a RTX 4090 GPU, and excludes the time to decode latents to images.

@@ -86,7 +86,7 @@ class GenieEvaluator:
         self.device = device
         self.args = args
 
-    def predict_zframe_logits(self, input_ids: torch.LongTensor) -> torch.Tensor:
+    def predict_zframe_logits(self, input_ids: torch.LongTensor) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Conditioned on each prefix: [frame_0], [frame_0, frame_1], ..., [frame_0, frame_1, ... frame_{T-1}],
         predict the tokens in the following frame: [pred_frame_1, pred_frame_2, ..., pred_frame_T].

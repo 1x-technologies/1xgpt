@@ -333,7 +333,7 @@ def main():
 
     accelerator.wait_for_everyone()
 
-    with open(os.path.join(args.train_data_dir, "metadata.json"), "r") as f:  # TODO: sequence length
+    with open(os.path.join(args.train_data_dir, "metadata.json"), "r") as f:
         vocab_size = json.load(f)["vocab_size"]
 
     LATENT_SIDE_LEN = 20
