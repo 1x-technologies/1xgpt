@@ -30,10 +30,10 @@ These challenges are largely inspired by the [commavq compression challenge](htt
 
 ## Getting Started
 
-[Download the dataset on Huggingface](https://huggingface.co/datasets/1x-technologies/worldmodel) and extract the dataset to `data/train_v0`, `data/val_v0`.
+ and extract the dataset to `data/train_v0`, `data/val_v0`.
 
 ```
-# install dependencies
+# install dependencies and download data
 ./build.sh 
 
 # source the Python environment
@@ -46,7 +46,7 @@ python train_llm.py --output_dir data/video_llm
 ./generate.py --output_dir data/generated
 
 # evaluate the baseline model
-./evaluate.py
+./evaluate.py --checkpoint_dir data/video_llm
 
 # visualize the generated results
 ./visualize.py --token_dir data/generated 
@@ -64,19 +64,19 @@ pip install -r baselines/requirements.txt
 python train_st_model.py --root_dir data/genie_model
 
 # Generate frames from trained model
-python baselines/generate_genie.py --checkpoint <PATH_TO_CKPT?>
+python genie/generate_genie.py --checkpoint <PATH_TO_CKPT?>
 
 # visualize generated frames
 ./visualize.py --token_dir data/genie_generated --stride 1
 
 # Evaluate
-python baselines/evaluate_genie.py --val_data_dir data/val_v0 --checkpoint <PATH_TO_CKPT?>
+python genie/evaluate_genie.py --checkpoint <PATH_TO_CKPT?>
 
 ```
 
 ## Data (Version: 0.0.1)
-
-The full dataset is stored in the `train_v0` directory:
+[Download the dataset on Huggingface](https://huggingface.co/datasets/1x-technologies/worldmodel)
+The full dataset is stored in the `data/train_v0` directory:
 
 - **video.bin** - 20x20 image patches at 30hz, each patch is vector-quantized into 1000 possible integer values. These can be decoded into 160x160 RGB images.
 - **actions.bin** - encoded robot whole body actions for each image frame, vector-quantized into 1000 possible integer values. You may want to use this to train action-conditioned world models. Raw actions (joint angles, driving velocities, gripper closures, neck pitch) are provided in the `actions/` subdirectory. 
@@ -106,12 +106,20 @@ After manually reviewing your code, we run evals in a 22.04 + CUDA 12.3 sandboxe
 
 All scores are evaluated on our held-out dataset.
 
-|**User**| **Teacher-Forced CE Loss** | **Teacher-Forced Token Accuracy** | **Autoregressive CE Loss** | **Autoregressive Token Accuracy** | **Autoregressive LPIPS** | **Generation Time\* (secs/frame)** |
-|-|----------------------------|-----------------------------------|----------------------------|-----------------------------------|-------------------------|------------------------------------|
-|kevin| 2.34                       | 0.411                             | 4.62                       | 0.299                             | 0.166                   | 2.14                               |
-|eric|N/A|N/A|3.68|0.294|0.20|1.13|
+| **User**                                                           | **Teacher-Forced CE Loss** | **Teacher-Forced Token Accuracy** | **Autoregressive CE Loss** | **Autoregressive Token Accuracy** | **Autoregressive LPIPS** | **Generation Time\* (secs/frame)** |
+|--------------------------------------------------------------------|----------------------------|-----------------------------------|----------------------------|-----------------------------------|--------------------------|------------------------------------|
+| 1x-technologies/GENIE_210M (`maskgit_steps=1`, `temperature=1e-8`) | N/A                        | N/A                               | 3.17                       | 0.319                             | 0.20                     | 0.085                              |
+| 1x-technologies/Llama_1B_v0                                        | 2.45                       | 0.399                             | 5.04                       | 0.269                             | 0.23                     | 2.22                               |
 
 *Note that generation time is the time to generate latents on a RTX 4090 GPU, and excludes the time to decode latents to images.
+
+### Metric Details
+We evaluate the model under two different scenarios; in both cases, the model receives the tokens of the previous frame(s) as input, 
+and the model should predict the tokens of the following frame. 
+- **Autoregressive** (frame-level) is closer to an actual generation scenario, where the model receives $t$ x 20x20 tokens representing frames 0 to $t - 1$, 
+and the model should auto-regressively predict all 20x20 for frame $t$.
+- (If applicable), **Teacher-forced** matches the typical training scenario with causal masking. 
+It is simply a next token prediction task where all previous tokens, including any in the current frame, are ground-truth tokens as opposed to autoregressively predicted tokens.
 
 
 ## Citation

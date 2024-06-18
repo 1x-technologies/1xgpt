@@ -1,13 +1,11 @@
+from diffusers.models.unets.unet_2d_condition import UNet2DConditionOutput, UNet2DConditionModel
+from vector_quantize_pytorch import FSQ
 from typing import Optional, Tuple, Union, Dict, Any
-
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-from vector_quantize_pytorch import FSQ
-from diffusers.utils import USE_PEFT_BACKEND, scale_lora_layers, unscale_lora_layers
 from diffusers.configuration_utils import register_to_config
-from diffusers.models.unets.unet_2d_condition import UNet2DConditionOutput, UNet2DConditionModel
-
+from diffusers.utils import USE_PEFT_BACKEND, scale_lora_layers, unscale_lora_layers
+import torch.nn.functional as F
 
 # Utility modules to learn upsampling
 class UpSampleBlock(nn.Module):
@@ -19,11 +17,9 @@ class UpSampleBlock(nn.Module):
         x = F.interpolate(x, scale_factor=2.0)
         return self.conv(x)
 
-
 class Swish(nn.Module):
     def forward(self, x):
         return x * torch.sigmoid(x)
-
 
 class ResidualBlock(nn.Module):
     def __init__(self, in_channels, out_channels):
@@ -152,17 +148,9 @@ class UNet2DConditionModel2(UNet2DConditionModel):
             cross_attention_norm=cross_attention_norm,
             addition_embed_type_num_heads=addition_embed_type_num_heads,
         )
-        # Projection of (4, 40, 40) patches to (4, 20, 20) patches
+
         self.levels = [8, 5, 5, 5] # 1000
-        # self.levels = [7, 5, 5, 5, 5]  # 2^12 # 4375
-        # self.levels = [8, 8, 4, 5, 5, 5] # 2^16 # 32_000
         self.fsq = FSQ(self.levels)
-        # downsampling of the input conditioning
-        # Linear projection of 64x64 patches to 16x16 patches
-        # patch_size = 64 // 16
-        # self.conv_downsample = nn.Conv2d(in_channels=4, out_channels=len(self.levels), kernel_size=patch_size, stride=patch_size)
-        # Linear projection of 16x16 patches to 64x64 patches
-        # self.conv_upsample = nn.ConvTranspose2d(in_channels=len(self.levels), out_channels=4, kernel_size=patch_size, stride=patch_size, padding=0)
 
         self.vector_quantize = vector_quantize
 
@@ -221,7 +209,7 @@ class UNet2DConditionModel2(UNet2DConditionModel):
                 Whether or not to return a [`~models.unets.unet_2d_condition.UNet2DConditionOutput`] instead of a plain
                 tuple.
             vector_quantize (`bool`, *optional*, defaults to `False`):
-                If True, downsamples, vector-quantizes, and upsamples latent. Set this to True during training. 
+                If True, downsamples, vector-quantizes, and upsamples latent. Set this to True during training.
                 If False, skips vector quantization (inference time generation from discrete latents).
         Returns:
             [`~models.unets.unet_2d_condition.UNet2DConditionOutput`] or `tuple`:
@@ -302,10 +290,8 @@ class UNet2DConditionModel2(UNet2DConditionModel):
         # denoiser learns to predict (noised image, upsample(fsq(downsample(original image)))) -> original image
         if self.vector_quantize:
             sample, original_image_embeds = sample[:, :4], sample[:, 4:]
-            # img_patches = self.conv_downsample(original_image_embeds)
             img_patches = original_image_embeds
             x_CHW, indices_HW = self.fsq(img_patches)
-            # x_CHW = self.conv_upsample(x_CHW)
             sample = torch.cat([sample, x_CHW], dim=1)
 
         # END FSQ MOD
@@ -339,13 +325,16 @@ class UNet2DConditionModel2(UNet2DConditionModel):
         #       T2I-Adapter and ControlNet both use down_block_additional_residuals arg
         #       but can only use one or the other
         if not is_adapter and mid_block_additional_residual is None and down_block_additional_residuals is not None:
-            raise RuntimeError(
+            deprecate(
                 "T2I should not use down_block_additional_residuals",
                 "1.3.0",
                 "Passing intrablock residual connections with `down_block_additional_residuals` is deprecated \
                        and will be removed in diffusers 1.3.0.  `down_block_additional_residuals` should only be used \
                        for ControlNet. Please make sure use `down_intrablock_additional_residuals` instead. ",
+                standard_warn=False,
             )
+            down_intrablock_additional_residuals = down_block_additional_residuals
+            is_adapter = True
 
         down_block_res_samples = (sample,)
         for downsample_block in self.down_blocks:

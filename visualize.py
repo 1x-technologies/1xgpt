@@ -3,6 +3,7 @@
 """Script to decode tokenized video into images/video."""
 
 import argparse
+import os
 from pathlib import Path
 from PIL import Image
 
@@ -85,8 +86,8 @@ def export_to_gif(frames: list, output_gif_path: str, fps: int):
         frame, np.ndarray) else frame for frame in frames]
 
     duration_ms = 1000 / fps
-    pil_frames[0].save(output_gif_path.replace('.mp4', '.gif'),
-                       format='GIF',
+    pil_frames[0].save(output_gif_path.replace(".mp4", ".gif"),
+                       format="GIF",
                        append_images=pil_frames[1:],
                        save_all=True,
                        duration=duration_ms,
@@ -94,8 +95,8 @@ def export_to_gif(frames: list, output_gif_path: str, fps: int):
 
 
 def decode_latents_wrapper(pretrained_model_name_or_path="timbrooks/instruct-pix2pix",
-                           unet_checkpoint_path="data/checkpoint-111000", device="cuda",
-                           max_images=360):
+                           unet_checkpoint_path="1x-technologies/worldmodel_unet_v0", device="cuda",
+                           max_images=5000):
     # VAE does image decoding
     vae = AutoencoderKL.from_pretrained(
         pretrained_model_name_or_path,
@@ -104,7 +105,6 @@ def decode_latents_wrapper(pretrained_model_name_or_path="timbrooks/instruct-pix
 
     unet = UNet2DConditionModel2.from_pretrained(
         unet_checkpoint_path,
-        subfolder="unet",
         vector_quantize=False,
     ).to(device=device, dtype=torch.bfloat16)
 
@@ -132,11 +132,8 @@ def decode_latents_wrapper(pretrained_model_name_or_path="timbrooks/instruct-pix
                 input_image_tensor = pipeline.unet.fsq.implicit_codebook[indices_HW.flatten().astype(np.int32)].reshape(
                     indices_HW.shape + (-1,))
 
-                # input_image_tensor = torch.tensor(input_image_tensor, device=device)
-                input_image_tensor = rearrange(input_image_tensor, 'h w c -> 1 c h w')
-                # Conv upsample
-                # input_image_tensor = pipeline.unet.conv_upsample(input_image_tensor)
-                # unet.vector_quantize = False
+                input_image_tensor = rearrange(input_image_tensor, "h w c -> 1 c h w")
+
                 img = pipeline(
                     prompt=None,
                     prompt_embeds=prompt_embeds,
@@ -157,10 +154,9 @@ def decode_latents_wrapper(pretrained_model_name_or_path="timbrooks/instruct-pix
 @torch.no_grad()
 def main():
     args = parse_args()
-    # Load tokens
-    data_dir = Path(args.token_dir)
 
-    token_dataset = RawTokenDataset(data_dir, 1, filter_interrupts=False)
+    # Load tokens
+    token_dataset = RawTokenDataset(args.token_dir, 1, filter_interrupts=False)
     video_data = token_dataset.data
     metadata = token_dataset.metadata
 
@@ -168,9 +164,9 @@ def main():
         args.pretrained_model_name_or_path, args.unet_checkpoint_path,
         max_images=30
     )(video_data[args.offset::args.stride])
-    output_gif_path = args.token_dir + f'/generated_offset{args.offset}.gif'
+    output_gif_path = os.path.join(args.token_dir, f"generated_offset{args.offset}.gif")
     export_to_gif(images, output_gif_path, args.fps)
-    print(f'Saved to {output_gif_path}')
+    print(f"Saved to {output_gif_path}")
 
     if not args.disable_comic:
         fig, axs = plt.subplots(nrows=2, ncols=metadata["window_size"], figsize=(3 * metadata["window_size"], 3 * 2))
@@ -191,7 +187,7 @@ def main():
                 ax.imshow(image)
                 ax.axis("off")
 
-        output_comic_path = data_dir / f"generated_comic_offset{args.offset}.png"
+        output_comic_path = os.path.join(args.token_dir, f"generated_comic_offset{args.offset}.png")
         plt.savefig(output_comic_path, bbox_inches="tight")
         plt.close()
         print(f"Saved to {output_comic_path}")

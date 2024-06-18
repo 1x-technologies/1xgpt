@@ -8,6 +8,7 @@ diffusers==0.28.0
 datasets==2.19.1
 lpips==0.1.4
 lightning==2.1.4
+xformers==0.0.26.post1
 
 wandb
 calflops
