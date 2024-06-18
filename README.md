@@ -20,10 +20,10 @@ Beyond the scope of these challenges, we hope that this dataset will be helpful 
 
 ## Challenges
 
-Each example is a sequence of 16 images at 2Hz (so 8 seconds total), and your goal is to predict the next image given the previous ones.
+Each example is a sequence of 16 first-person images from the robot at 2Hz (so 8 seconds total), and your goal is to predict the next image given the previous ones.
 
-- **Compression Challenge ($1000 prize)**: Can you achieve a cross entropy loss on held-out video tokens lower than 2.1? The first submission to achieve this wins a prize of $1000. To participate in the challenge, fill in your model predictions in `evaluate.py`.
-- **Sampling Challenge ($1000 prize)**: Future prediction methods are not necessarily restricted to next-logit prediction. You can, for example, use methods like GANs, Diffusion, and MaskGIT to generate future images. Can you generate future latents with an accuracy of 45% or a LPIPS of 0.1?
+- **Compression Challenge ($10k prize)**: To participate in the challenge, fill in your model predictions in `evaluate.py`. Criteria will be released shortly.
+- **Sampling Challenge ($10k prize)**: Future prediction methods are not necessarily restricted to next-logit prediction. You can, for example, use methods like GANs, Diffusion, and MaskGIT to generate future images. Criteria will be released shortly.
 - **Evaluation Challenge (upcoming)**: given a set of N policies, $\pi_1, \pi_2, ... \pi_N$, where each policy $\pi_i(a_t|z_t)$ predicts action tokens from image tokens, can you evaluate all of the policies inside a "world model" $p(z_{t+1}|z_t, a_t)$ and tell us the ranked order of which policy is the best?
 
 These challenges are largely inspired by the [commavq compression challenge](https://github.com/commaai/commavq).
@@ -79,7 +79,7 @@ python baselines/evaluate_genie.py --val_data_dir data/val_v0 --checkpoint <PATH
 The full dataset is stored in the `train_v0` directory:
 
 - **video.bin** - 20x20 image patches at 30hz, each patch is vector-quantized into 1000 possible integer values. These can be decoded into 160x160 RGB images.
-- **actions.bin** - encoded robot whole body actions for each image frame, vector-quantized into 1000 possible integer values. You may want to use this to train action-conditioned world models.
+- **actions.bin** - encoded robot whole body actions for each image frame, vector-quantized into 1000 possible integer values. You may want to use this to train action-conditioned world models. Raw actions (joint angles, driving velocities, gripper closures, neck pitch) are provided in the `actions/` subdirectory. 
 - **segment_ids.bin** - for each frame `segment_ids[i]` uniquely points to the log index that frame `i` came from. You may want to use this to separate non-contiguous frames (transitions).
 
 We also provide a small `val_v0` data split containing held-out examples not seen in the training set, in case you want to try evaluating your model on held-out frames.
