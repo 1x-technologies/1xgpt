@@ -150,7 +150,7 @@ If you use this software or dataset in your work, please cite it as follows:
   publisher = {GitHub},
   journal = {GitHub repository},
   howpublished = {\url{https://github.com/1x-technologies/1xgpt}},
-  commit = {22843fe3c43e92576c967c932e1197cd035a63d0}
+  commit = {b8340b43061f0dbaac6cf49bafc00abb911afe81}
 }
 ```
 
