@@ -29,7 +29,7 @@ Each example is a sequence of 16 first-person images from the robot at 2Hz (so 8
 These challenges are largely inspired by the [commavq compression challenge](https://github.com/commaai/commavq).
 
 ## Getting Started
-We require `Python 3.10` or later. This code was tested with `Python 3.10.12`
+We require `Python 3.10` or later. This code was tested with `Python 3.10.12`.
 
 ```
 # Install dependencies and download data
@@ -46,7 +46,7 @@ This repo provides an implementation of the spatio-temporal transformer and Mask
 ```
 # Train the GENIE model
 python train_st_model.py --root_dir data/genie_model --num_layers 12
-
+# Note that when using wandb, the GENIE checkpoint may be saved under a folder with the wandb project name.
 
 # Generate frames from trained model
 python genie/generate_genie.py --lightning_checkpoint <Path to Lightning checkpoint> --num_layers 12
