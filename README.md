@@ -40,7 +40,7 @@ These challenges are largely inspired by the [commavq compression challenge](htt
 source venv/bin/activate
 
 # train a baseline model
-python train_llm.py --output_dir data/video_llm 
+python train_llm.py --output_dir data/video_llm --model_config 1x-technologies/Llama_1B_v0 --report_to wandb
 
 # generate frames from the baseline
 ./generate.py --output_dir data/generated

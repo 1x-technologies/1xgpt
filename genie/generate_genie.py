@@ -47,7 +47,7 @@ def parse_args():
     )
     parser.add_argument(
         "--single_pass", action="store_true",
-        help="If True, visualizes argmax of single forward pass on fully masked inputs"
+        help="If True, takes argmax of single forward pass on fully masked inputs"
     )
     parser.add_argument(
         "--num_layers", type=int, default=8, help="Num hidden layers"
