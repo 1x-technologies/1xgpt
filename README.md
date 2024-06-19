@@ -69,13 +69,13 @@ python genie/evaluate_genie.py --hf_checkpoint 1x-technologies/GENIE_210M --sing
 python train_llm.py --output_dir data/video_llm --model_config 1x-technologies/Llama_1B_v0 --report_to wandb
 
 # Generate frames from the model
-./generate.py --checkpoint_dir data/video_llm --output_dir data/generated
+./generate.py --checkpoint_dir <Path to HF checkpoint> --output_dir data/generated
 
 # Visualize generated frames
 ./visualize.py --token_dir data/generated 
 
 # Evaluate the trained model
-./evaluate.py --checkpoint_dir data/video_llm
+./evaluate.py --checkpoint_dir <Path to HF checkpoint>
 
 # Generate and evaluate the 1X baseline model
 ./generate.py --checkpoint_dir 1x-technologies/Llama_1B_v0 --output_dir data/generated
@@ -84,6 +84,7 @@ python train_llm.py --output_dir data/video_llm --model_config 1x-technologies/L
 
 ## Data (Version: 0.0.1)
 [Download the dataset on Huggingface](https://huggingface.co/datasets/1x-technologies/worldmodel)
+
 The full dataset is stored in the `data/train_v0` directory:
 
 - **video.bin** - 20x20 image patches at 30hz, each patch is vector-quantized into 1000 possible integer values. These can be decoded into 160x160 RGB images.
@@ -125,7 +126,7 @@ All scores are evaluated on our held-out dataset.
 We evaluate the model under two different scenarios; in both cases, the model receives the tokens of the previous frame(s) as input, 
 and the model should predict the tokens of the following frame. 
 - **Autoregressive** (frame-level) is closer to an actual generation scenario, where the model receives $t$ x 20x20 tokens representing frames 0 to $t - 1$, 
-and the model should auto-regressively predict all 20x20 for frame $t$.
+and the model should auto-regressively predict all 20x20 tokens for frame $t$.
 - (If applicable), **Teacher-forced** matches the typical training scenario with causal masking. 
 It is simply a next token prediction task where all previous tokens, including any in the current frame, are ground-truth tokens as opposed to autoregressively predicted tokens.
 

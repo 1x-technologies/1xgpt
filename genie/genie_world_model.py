@@ -75,10 +75,9 @@ class STWorldModel(nn.Module):
             sample = sample.reshape(-1, size)
             confidence = confidence.reshape(-1, size)
             confidence[unmasked] = torch.inf
-            # use cosine maks scheduling function
-            n = math.ceil(
-                math.cos((maskgit_t + 1) / maskgit_steps * (math.pi / 2)) * size)  # how many of frame out_t to mask
-            # n = [50, 100, 150, 200, 0][maskgit_t]
+            # use cosine mask scheduling function, n is how many of frame out_t to mask
+            n = math.ceil(math.cos((maskgit_t + 1) / maskgit_steps * (math.pi / 2)) * size)
+
             # set the n pixels with the smallest confidence to mask_token
             least_confident_tokens = torch.argsort(confidence, dim=1)
             # unmask the (L - n) most confident tokens
@@ -98,7 +97,8 @@ class STWorldModel(nn.Module):
         sample_HW = sample.reshape(-1, H, W)
         return sample_HW, logits_CHW
 
-    def init_mask(self, prompt_THW):
+    @staticmethod
+    def init_mask(prompt_THW):
         # since we generate 1 image at a time, the mask should be for a single frame, not across all frames.
         T, H, W = prompt_THW.size(1), prompt_THW.size(2), prompt_THW.size(3)
         unmasked = torch.zeros(prompt_THW.size(0), H * W, dtype=torch.bool, device=prompt_THW.device)
@@ -131,7 +131,8 @@ class STWorldModel(nn.Module):
 
 
 class LitWorldModel(L.LightningModule, PyTorchModelHubMixin):
-    def __init__(self,
+    def __init__(
+        self,
         T,
         S,
         image_vocab_size,
@@ -213,8 +214,8 @@ class LitWorldModel(L.LightningModule, PyTorchModelHubMixin):
             x_THW_view = x_THW[:, 1:]
 
             # per-minibatch, per-frame masking probability
-            mask_prob_T = self.min_mask_rate + (self.max_mask_rate - self.min_mask_rate) * torch.rand(
-                x_THW_view.size(0), x_THW_view.size(1), device=x.device)
+            mask_prob_T = self.min_mask_rate + (self.max_mask_rate - self.min_mask_rate) \
+                * torch.rand(x_THW_view.size(0), x_THW_view.size(1), device=x.device)
             r = torch.rand(x_THW_view.size(), device=x_THW_view.device)
             mask = r < mask_prob_T.unsqueeze(-1).unsqueeze(-1)
             # masking the view also masks x_TS

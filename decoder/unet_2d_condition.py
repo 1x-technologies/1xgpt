@@ -7,6 +7,7 @@ from diffusers.configuration_utils import register_to_config
 from diffusers.utils import USE_PEFT_BACKEND, scale_lora_layers, unscale_lora_layers
 import torch.nn.functional as F
 
+
 # Utility modules to learn upsampling
 class UpSampleBlock(nn.Module):
     def __init__(self, channels):
@@ -17,9 +18,11 @@ class UpSampleBlock(nn.Module):
         x = F.interpolate(x, scale_factor=2.0)
         return self.conv(x)
 
+
 class Swish(nn.Module):
     def forward(self, x):
         return x * torch.sigmoid(x)
+
 
 class ResidualBlock(nn.Module):
     def __init__(self, in_channels, out_channels):
@@ -325,16 +328,13 @@ class UNet2DConditionModel2(UNet2DConditionModel):
         #       T2I-Adapter and ControlNet both use down_block_additional_residuals arg
         #       but can only use one or the other
         if not is_adapter and mid_block_additional_residual is None and down_block_additional_residuals is not None:
-            deprecate(
+            raise RuntimeError(
                 "T2I should not use down_block_additional_residuals",
                 "1.3.0",
                 "Passing intrablock residual connections with `down_block_additional_residuals` is deprecated \
                        and will be removed in diffusers 1.3.0.  `down_block_additional_residuals` should only be used \
                        for ControlNet. Please make sure use `down_intrablock_additional_residuals` instead. ",
-                standard_warn=False,
             )
-            down_intrablock_additional_residuals = down_block_additional_residuals
-            is_adapter = True
 
         down_block_res_samples = (sample,)
         for downsample_block in self.down_blocks:
