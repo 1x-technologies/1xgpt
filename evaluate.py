@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 
 import argparse
+import os
 import time
 from collections import defaultdict
+from pathlib import Path
 from typing import Callable
 
 import lpips
@@ -36,6 +38,11 @@ def parse_args():
     parser.add_argument(
         "--batch_size", type=int, default=2,
         help="Batch size, current script only supports a single GPU."
+    )
+    parser.add_argument(
+        "--save_outputs_dir", type=str,
+        help="Debug option. If specified, will save model predictions and ground truths to this directory. "
+             "Specifically, will save `{pred_frames,pred_logits,gtruth_frames,gtruth_tokens}.pt`"
     )
 
     return parser.parse_args()
@@ -203,19 +210,28 @@ def main():
 
     val_dataset = RawTokenDataset(args.val_data_dir, window_size=WINDOW_SIZE, stride=STRIDE)
     decode_latents = decode_latents_wrapper(unet_checkpoint_path=val_dataset.metadata["unet"])
-    evaluator = LlamaEvaluator(args.checkpoint_dir, decode_latents)
+    lpips_alex = lpips.LPIPS(net="alex")  # Calculate LPIPS w/ AlexNet, which is the fastest model out of their options
 
-    # To save time, only evaluate on each chunk once instead of using a sliding window.
-    val_dataset = Subset(
-        val_dataset,
-        [i for chunk_start in range(val_dataset.stride)
-         for i in range(chunk_start, len(val_dataset), val_dataset.stride * val_dataset.window_size)]
-    )
+    # To save time, instead of using a sliding window, use each frame at most once
+    filtered_start_inds = []
+    for start_ind in val_dataset.valid_start_inds:
+        overlapping_start_inds = {start_ind - i * STRIDE for i in range(1, WINDOW_SIZE)}
+        # all sequences from `overlapping_start_inds` will also contain `start_ind`,
+        # so exclude sequence starting from `start_ind` if any of `overlapping_start_inds` is already being used
+        for existing_start_ind in filtered_start_inds[-WINDOW_SIZE * STRIDE:]:  # Bound could be improved
+            if existing_start_ind in overlapping_start_inds:
+                break
+        else:
+            filtered_start_inds.append(start_ind)
 
+    val_dataset.valid_start_inds = filtered_start_inds
     dataloader = DataLoader(val_dataset, collate_fn=default_data_collator, batch_size=args.batch_size,)
 
-    lpips_alex = lpips.LPIPS(net="alex")  # Calculate LPIPS w/ AlexNet, which is the fastest model out of their options
+    evaluator = LlamaEvaluator(args.checkpoint_dir, decode_latents)
     metrics = defaultdict(AvgMetric)
+
+    if args.save_outputs_dir is not None:
+        outputs_to_save = defaultdict(list)
 
     for i, batch in enumerate(tqdm(dataloader)):
         batch_size = batch["input_ids"].size(0)
@@ -250,6 +266,19 @@ def main():
         metrics["gtruth_lpips"].update_list(compute_lpips(labels, redecoded_labels, lpips_alex))
 
         print({key: val.mean() for key, val in metrics.items()})
+        if args.save_outputs_dir is not None:
+            outputs_to_save["pred_frames"].append(pred_frames)
+            outputs_to_save["pred_logits"].append(logits)
+            outputs_to_save["gtruth_frames"].append(decoded_gtruth)
+            outputs_to_save["gtruth_tokens"].append(reshaped_input_ids)
+
+    if args.save_outputs_dir is not None:
+        os.makedirs(args.save_outputs_dir, exist_ok=True)
+        save_outputs_dir = Path(args.save_outputs_dir)
+        torch.save(torch.cat(outputs_to_save["pred_frames"], dim=0).cpu(), save_outputs_dir / "pred_frames.pt")
+        torch.save(torch.cat(outputs_to_save["pred_logits"], dim=0).cpu(), save_outputs_dir / "pred_logits.pt")
+        torch.save(torch.cat(outputs_to_save["gtruth_frames"], dim=0).cpu(), save_outputs_dir / "gtruth_frames.pt")
+        torch.save(torch.cat(outputs_to_save["gtruth_tokens"], dim=0).cpu(), save_outputs_dir / "gtruth_tokens.pt")
 
 
 if __name__ == "__main__":
