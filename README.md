@@ -41,7 +41,7 @@ source venv/bin/activate
 
 ## Training GENIE
 
-This repo provides an implementation of the spatio-temporal transformer and MaskGIT sampler as described in [Genie: Generative Interactive Environments](https://arxiv.org/abs/2402.15391). Note that this implemention only trains on video sequences, not actions (though it is trivial to add this via an additive embedding). To train this baseline, 
+This repo provides an implementation of the spatio-temporal transformer and MaskGIT sampler as described in [Genie: Generative Interactive Environments](https://arxiv.org/abs/2402.15391). Note that this implementation only trains on video sequences, not actions (though it is trivial to add this via an additive embedding). To train this baseline, 
 
 ```
 # Train the GENIE model
