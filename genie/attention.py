@@ -3,19 +3,27 @@ import warnings
 from typing import Optional
 
 import torch
-import torch.nn.functional as F
-from torch import Tensor, nn
+from torch import nn
 
 from xformers.ops import LowerTriangularMask, memory_efficient_attention, unbind
 
 
-class MemEffAttention(nn.Module):
-    # NOTE: Mem-eff attentin from xformers is actually Flash Attention 2
-    def __init__(self, dim: int, num_heads: int = 8, qkv_bias: bool = False, proj_bias: bool = True, attn_drop: float = 0.0, qkv_norm: bool = False) -> None:
+class SelfAttention(nn.Module):
+    # NOTE: Mem-eff attention from xformers is actually Flash Attention 2
+    def __init__(
+        self,
+        dim: int,
+        num_heads: int = 8,
+        qkv_bias: bool = False,
+        proj_bias: bool = True,
+        attn_drop: float = 0.0,
+        qkv_norm: bool = False,
+        use_mup: bool = False,
+    ) -> None:
         super().__init__()
         self.num_heads = num_heads
         head_dim = dim // num_heads
-        self.scale = head_dim**-0.5
+        self.scale = 8/head_dim if use_mup else head_dim**-0.5  # Scaling by 8 to be equal when head_dim=64
         self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
         self.attn_drop = nn.Dropout(attn_drop)
         self.proj = nn.Linear(dim, dim, bias=proj_bias)
@@ -25,7 +33,7 @@ class MemEffAttention(nn.Module):
             # Note that LN is done in fp32, so they have to be
             self.norm = nn.LayerNorm(head_dim, eps=1e-05)
 
-    def forward(self, x: Tensor, causal: bool = False) -> Tensor:
+    def forward(self, x: torch.Tensor, causal: bool = False) -> torch.Tensor:
         B, N, C = x.shape
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads)
         q, k, v = unbind(qkv, 2)
@@ -43,12 +51,3 @@ class MemEffAttention(nn.Module):
 
         x = self.proj(x)
         return x
-
-
-class SelfAttention(MemEffAttention):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
-    def forward(self, x: Tensor, causal: bool = False) -> Tensor:
-        return MemEffAttention.forward(self, x, causal=causal)
-

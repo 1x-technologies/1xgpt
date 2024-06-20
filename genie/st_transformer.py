@@ -39,13 +39,16 @@ class STBlock(nn.Module):
         drop: float = 0.0,
         attn_drop: float = 0.0,
         qkv_norm: bool = True,
+        use_mup: bool = False,
     ) -> None:
         super().__init__()
         self.norm1 = nn.Identity() if qkv_norm else nn.LayerNorm(dim, eps=1e-05)
         # sequence dim is over each frame's 32x32 patch tokens
-        self.spatial_attn = SelfAttention(dim, num_heads=num_heads, qkv_bias=qkv_bias, proj_bias=proj_bias, attn_drop=attn_drop, qkv_norm=qkv_norm)
+        self.spatial_attn = SelfAttention(dim, num_heads=num_heads, qkv_bias=qkv_bias, proj_bias=proj_bias,
+                                          attn_drop=attn_drop, qkv_norm=qkv_norm, use_mup=use_mup)
         # sequence dim is over time sequence (16)
-        self.temporal_attn = SelfAttention(dim, num_heads=num_heads, qkv_bias=qkv_bias, proj_bias=proj_bias, attn_drop=attn_drop, qkv_norm=qkv_norm)
+        self.temporal_attn = SelfAttention(dim, num_heads=num_heads, qkv_bias=qkv_bias, proj_bias=proj_bias,
+                                           attn_drop=attn_drop, qkv_norm=qkv_norm, use_mup=use_mup)
         
         self.norm2 = nn.Identity() if qkv_norm else nn.LayerNorm(dim, eps=1e-05)
         mlp_hidden_dim = int(dim * mlp_ratio)
@@ -63,7 +66,6 @@ class STBlock(nn.Module):
         x_TC = x_TC + self.mlp(self.norm2(x_TC))
         x_TSC = rearrange(x_TC, '(B S) T C -> B T S C', S=S)
         return x_TSC
-
 
 
 class STTransformerEncoder(nn.Module):

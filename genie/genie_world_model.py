@@ -2,6 +2,7 @@ import math
 from functools import partial
 
 import lightning as L
+import mup
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -20,13 +21,13 @@ def accuracy(logits, targets):
 
 class STWorldModel(nn.Module):
     # Next-Token prediction as done in https://arxiv.org/pdf/2402.15391.pdf
-    def __init__(self, T, S, image_vocab_size, num_layers=8, num_heads=16, d_model=1024):
+    def __init__(self, T, S, image_vocab_size, num_layers=8, num_heads=16, d_model=1024, use_mup=False):
         super().__init__()
         self.image_mask_token = image_vocab_size - 1
         self.token_embed = nn.Embedding(image_vocab_size, d_model)
-        self.decoder = STTransformerDecoder(num_layers=num_layers, dim=d_model, num_heads=num_heads)
+        self.decoder = STTransformerDecoder(num_layers=num_layers, dim=d_model, num_heads=num_heads, use_mup=use_mup)
         self.pos_embed_TSC = torch.nn.Parameter(torch.zeros(1, T, S, d_model))
-        self.out_x_proj = nn.Linear(d_model, image_vocab_size)
+        self.out_x_proj = (mup.MuReadout if use_mup else nn.Linear)(d_model, image_vocab_size)
 
     def forward(self, x_THW):
         T, H, W = x_THW.size(1), x_THW.size(2), x_THW.size(3)
@@ -138,14 +139,15 @@ class LitWorldModel(L.LightningModule, PyTorchModelHubMixin):
         image_vocab_size,
         min_mask_rate=0.5,
         max_mask_rate=1.0,
-        num_layers=8,
+        num_layers=12,
         num_heads=16,
-        d_model=1024
+        d_model=1024,
+        use_mup=False,
     ):
         # T -- temporal sequence length, e.g.16
         # S -- spatial sequence length, e.g. 20x20 = 400
         super().__init__()
-        self.model = STWorldModel(T, S, image_vocab_size, num_layers, num_heads, d_model)
+        self.model = STWorldModel(T, S, image_vocab_size, num_layers, num_heads, d_model, use_mup)
         self.T = T
         self.h = self.w = int(math.sqrt(S))
         self.image_vocab_size = image_vocab_size
@@ -154,6 +156,7 @@ class LitWorldModel(L.LightningModule, PyTorchModelHubMixin):
         self.min_mask_rate = min_mask_rate
         self.max_mask_rate = max_mask_rate
         self.max_random_token_rate = 0.1  # Probability of corrupting remaining unmasked tokens
+        self.use_mup = use_mup
 
         # Register forward hooks for logging/debugging
         for st_block_idx, st_block in enumerate(self.model.decoder.layers):
@@ -265,3 +268,22 @@ class LitWorldModel(L.LightningModule, PyTorchModelHubMixin):
             return LitWorldModel.load_from_checkpoint(
                 lightning_checkpoint, **kwargs
             ).model
+
+    def init_weights(self):
+        if not self.use_mup:
+            return
+
+        std = 0.02
+        for module in self.modules():
+            if isinstance(module, nn.Linear):
+                if hasattr(module.weight, "infshape"):
+                    mup.normal_(module.weight, mean=0.0, std=std)
+                else:
+                    module.weight.data.normal_(mean=0.0, std=std)
+
+                if module.bias is not None:
+                    module.bias.data.zero_()
+            elif isinstance(module, nn.Embedding):
+                module.weight.data.normal_(mean=0.0, std=std)
+                if module.padding_idx is not None:
+                    module.weight.data[module.padding_idx].zero_()

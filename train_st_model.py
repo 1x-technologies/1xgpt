@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 import lightning as L
+import mup
 import torch
 from absl import app, flags
 from lightning.pytorch.callbacks import ModelCheckpoint
@@ -24,6 +25,7 @@ flags.DEFINE_string("name", None, "Experiment name")
 flags.DEFINE_integer("num_layers", default=12, help="Num hidden layers")
 flags.DEFINE_integer("num_heads", default=16, help="Num attention heads")
 flags.DEFINE_integer("d_model", default=1024, help="Hidden size")
+flags.DEFINE_boolean("use_mup", False, "Whether to use muP")
 
 
 FLAGS = flags.FLAGS
@@ -57,13 +59,23 @@ def train(_):
 
     # Reserve a new MASK token value
     model = LitWorldModel(T=T, S=s * s, image_vocab_size=metadata["vocab_size"] + 1, num_layers=FLAGS.num_layers,
-                          num_heads=FLAGS.num_heads, d_model=FLAGS.d_model)
+                          num_heads=FLAGS.num_heads, d_model=FLAGS.d_model, use_mup=FLAGS.use_mup)
+
+    if FLAGS.use_mup:
+        base_model = LitWorldModel(16, 20 ** 2, 1001, num_layers=FLAGS.num_layers, num_heads=8,
+                                   d_model=512, use_mup=True)
+
+        mup.set_base_shapes(model, base_model)
+        model.init_weights()
+        model.model.out_x_proj.weight.data.zero_()
 
     # This method of restoring allows overriding lr_schedule / optimizer vars
     if FLAGS.restore_ckpt:
         checkpoint = torch.load(FLAGS.restore_ckpt, map_location=torch.device("cpu"))
         model.load_state_dict(checkpoint["state_dict"])
         # Does not restore dataloader, lr scheduler yet
+
+
 
     # Save every 5k steps
     steps_checkpoint_callback = ModelCheckpoint(
@@ -74,7 +86,9 @@ def train(_):
     )
     lr_monitor = L.pytorch.callbacks.LearningRateMonitor(logging_interval="step")
     callbacks = [steps_checkpoint_callback, lr_monitor]
-    wandb_logger = L.pytorch.loggers.WandbLogger(project="1XGPT_20x20_noconv_noaugment", log_model=False)
+
+    wandb_logger = L.pytorch.loggers.WandbLogger(project="1XGPT_20x20_noconv_noaugment", log_model=False,
+                                                 config=FLAGS.flag_values_dict())
 
     root_dir = f"{FLAGS.root_dir}/{FLAGS.name}" if FLAGS.name else FLAGS.root_dir
     trainer = L.Trainer(
