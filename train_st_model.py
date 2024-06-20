@@ -27,6 +27,10 @@ flags.DEFINE_integer("num_heads", default=16, help="Num attention heads")
 flags.DEFINE_integer("d_model", default=1024, help="Hidden size")
 flags.DEFINE_boolean("use_mup", False, "Whether to use muP")
 
+flags.DEFINE_integer("gradient_accumulation_steps", default=2, help="Gradient accumulation steps")
+flags.DEFINE_integer("save_every_n_steps", default=5000, help="Number of (accumulated) steps to save checkpoint")
+
+
 
 FLAGS = flags.FLAGS
 
@@ -75,12 +79,10 @@ def train(_):
         model.load_state_dict(checkpoint["state_dict"])
         # Does not restore dataloader, lr scheduler yet
 
-
-
     # Save every 5k steps
     steps_checkpoint_callback = ModelCheckpoint(
         save_top_k=-1,
-        every_n_train_steps=5000,
+        every_n_train_steps=FLAGS.save_every_n_steps,
         verbose=True,
         monitor=None,
     )
@@ -97,7 +99,7 @@ def train(_):
         log_every_n_steps=1,
         accelerator="gpu",
         precision="bf16-mixed",
-        accumulate_grad_batches=2,
+        accumulate_grad_batches=FLAGS.gradient_accumulation_steps,
         callbacks=callbacks,
         gradient_clip_val=1.,
         val_check_interval=500,

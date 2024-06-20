@@ -44,6 +44,10 @@ def parse_args():
         help="Debug option. If specified, will save model predictions and ground truths to this directory. "
              "Specifically, will save `{pred_frames,pred_logits,gtruth_frames,gtruth_tokens}.pt`"
     )
+    parser.add_argument(
+        "--max_examples", type=int,
+        help="If specified, will stop evaluation early after `max_examples` examples."
+    )
 
     return parser.parse_args()
 
@@ -225,6 +229,9 @@ def main():
             filtered_start_inds.append(start_ind)
 
     val_dataset.valid_start_inds = filtered_start_inds
+    if args.max_examples is not None:
+        val_dataset.valid_start_inds = val_dataset.valid_start_inds[:args.max_examples]
+
     dataloader = DataLoader(val_dataset, collate_fn=default_data_collator, batch_size=args.batch_size,)
 
     evaluator = LlamaEvaluator(args.checkpoint_dir, decode_latents)

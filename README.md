@@ -116,9 +116,9 @@ After manually reviewing your code, we run evals in a 22.04 + CUDA 12.3 sandboxe
 All scores are evaluated on our held-out dataset.
 
 | **User**                                     | **Teacher-Forced CE Loss** | **Teacher-Forced Token Accuracy** | **Autoregressive CE Loss** | **Autoregressive Token Accuracy** | **Autoregressive LPIPS** | **Generation Time\* (secs/frame)** |
-|----------------------------------------------|----------------------------|-----------------------------------|----------------------------|-----------------------------------|--------------------------|------------------------------------|
-| 1x-technologies/GENIE_210M (`--single_pass`) | N/A                        | N/A                               | 3.18                       | 0.318                             | 0.20                     | 0.076                              |
-| 1x-technologies/Llama_1B_v0                  | 2.46                       | 0.396                             | 5.08                       | 0.267                             | 0.23                     | 2.31                               |
+|----------------------------------------------|----------------------------|-----------------------------------|----------------------------|-----------------------------------|--------------------------|-----------------------------------|
+| 1x-technologies/GENIE_210M (`--single_pass`) | N/A                        | N/A                               | 2.90                       | 0.343                             | 0.16                     | 0.07                              |
+| 1x-technologies/Llama_1B_v0                  | 2.30                       | 0.416                             | 4.69                       | 0.287                             | 0.19                     | 2.14                              |
 
 *Note that generation time is the time to generate latents on a RTX 4090 GPU, and excludes the time to decode latents to images.
 
