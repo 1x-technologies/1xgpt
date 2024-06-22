@@ -1,7 +1,6 @@
 import math
 from functools import partial
 
-import lightning as L
 import mup
 import torch
 import torch.nn as nn
@@ -10,26 +9,41 @@ from diffusers.optimization import get_scheduler
 from einops import rearrange
 from huggingface_hub import PyTorchModelHubMixin
 from tqdm import tqdm
+from transformers.utils import ModelOutput
 
+from genie.config import GenieConfig
 from genie.st_transformer import STTransformerDecoder
 
 
-def accuracy(logits, targets):
-    _, preds = torch.max(logits, dim=1)
-    return torch.sum(preds == targets) / logits.shape[0]
-
-
-class STWorldModel(nn.Module):
+class STMaskGIT(nn.Module, PyTorchModelHubMixin):
     # Next-Token prediction as done in https://arxiv.org/pdf/2402.15391.pdf
-    def __init__(self, T, S, image_vocab_size, num_layers=8, num_heads=16, d_model=1024, use_mup=False):
+    def __init__(self, config: GenieConfig):
         super().__init__()
-        self.image_mask_token = image_vocab_size - 1
-        self.token_embed = nn.Embedding(image_vocab_size, d_model)
-        self.decoder = STTransformerDecoder(num_layers=num_layers, dim=d_model, num_heads=num_heads, use_mup=use_mup)
-        self.pos_embed_TSC = torch.nn.Parameter(torch.zeros(1, T, S, d_model))
-        self.out_x_proj = (mup.MuReadout if use_mup else nn.Linear)(d_model, image_vocab_size)
+        self.config = config
+        self.h = self.w = round(math.sqrt(self.config.S))
+        assert self.h**2 == self.config.S, "Expected S to be square"
 
-    def forward(self, x_THW):
+        total_vocab_size = config.image_vocab_size + 1  # additional mask token
+        self.mask_token_id = config.image_vocab_size
+
+        self.token_embed = nn.Embedding(total_vocab_size, config.d_model)
+        self.decoder = STTransformerDecoder(config)
+        self.pos_embed_TSC = torch.nn.Parameter(torch.zeros(1, config.T, config.S, config.d_model))
+        self.out_x_proj = (mup.MuReadout if config.use_mup else nn.Linear)(config.d_model, total_vocab_size)  # TODO: image_vocab_size instead?
+
+        # Register forward hooks for logging/debugging
+        # Also register buffers which will accumulate these statistics
+        for st_block_idx, st_block in enumerate(self.decoder.layers):
+            module_abbr = f"stblock{st_block_idx}_spatial"
+            self.register_buffer(module_abbr, torch.zeros((2, 2), dtype=torch.long), persistent=False)
+            hook = partial(self.log_max_attn_values, module_abbr=module_abbr)
+            st_block.spatial_attn.register_forward_hook(hook)
+            module_abbr = f"stblock{st_block_idx}_temporal"
+            self.register_buffer(module_abbr, torch.zeros((2, 2), dtype=torch.long), persistent=False)
+            hook = partial(self.log_max_attn_values, module_abbr=module_abbr)
+            st_block.temporal_attn.register_forward_hook(hook)
+
+    def pred_tokens(self, x_THW):  # TODO: customize collator instead, unify forward
         T, H, W = x_THW.size(1), x_THW.size(2), x_THW.size(3)
         x_TS = rearrange(x_THW, "B T H W -> B T (H W)")
         x_TSC = self.token_embed(x_TS)
@@ -53,7 +67,7 @@ class STWorldModel(nn.Module):
     ):
         # Perform a single maskgit step (cosine schedule), updating unmasked in-place
         T, H, W = prompt_THW.size(1), prompt_THW.size(2), prompt_THW.size(3)
-        logits_CTHW = self(prompt_THW)
+        logits_CTHW = self.pred_tokens(prompt_THW)
         # Logits, not probs, among the non-mask classes
         # probs for the frame we care about
         probs = rearrange(logits_CTHW[:, :, out_t], "B C H W -> (B H W) C")
@@ -83,7 +97,7 @@ class STWorldModel(nn.Module):
             least_confident_tokens = torch.argsort(confidence, dim=1)
             # unmask the (L - n) most confident tokens
             unmasked.scatter_(1, least_confident_tokens[:, n:], True)
-            sample.scatter_(1, least_confident_tokens[:, :n], self.image_mask_token)
+            sample.scatter_(1, least_confident_tokens[:, :n], self.mask_token_id)
         else:
             sample = sample.reshape(-1, size)
 
@@ -97,6 +111,30 @@ class STWorldModel(nn.Module):
         logits_CHW = rearrange(unmasked_probs, "(B H W) C -> B C H W", H=H, W=W)
         sample_HW = sample.reshape(-1, H, W)
         return sample_HW, logits_CHW
+
+    def generate(self, input_ids, attention_mask, max_new_tokens, min_new_tokens=None):
+        """
+        Args designed to match the format of Llama.
+        We ignore `attention_mask`, and use `max_new_tokens` to determine the number of frames to generate.
+        """
+        assert min_new_tokens in (None, max_new_tokens), \
+            "Expecting `min_new_tokens`, if specified, to match `max_new_tokens`."
+
+        assert max_new_tokens % self.config.S == 0, "Expecting `max_new_tokens` to be a multiple of `self.config.S`."
+        num_new_frames = max_new_tokens // self.config.S
+
+        inputs_THW = rearrange(input_ids.clone(), "b (t h w) -> b t h w", h=self.h, w=self.w)
+        inputs_masked_THW = torch.cat([
+            inputs_THW,
+            torch.full((input_ids.size(0), num_new_frames, self.h, self.w),
+                       self.mask_token_id, dtype=torch.long, device=input_ids.device)
+        ], dim=1)
+
+        for timestep in range(inputs_THW.size(1), inputs_THW.size(1) + num_new_frames):
+            sample_HW, _ = self.maskgit_generate(inputs_masked_THW, timestep, single_pass=True)
+            inputs_masked_THW[:, timestep] = sample_HW
+
+        return rearrange(inputs_masked_THW, "B T H W -> B (T H W)")
 
     @staticmethod
     def init_mask(prompt_THW):
@@ -112,92 +150,68 @@ class STWorldModel(nn.Module):
         out_t,
         maskgit_steps=8,
         temperature=1.,
+        single_pass=False,
     ):
         # assume we have pre-masked z2...zT with all masks
         assert out_t, "maskgit_generate requires out_t > 0"
-        assert torch.all(prompt_THW[:,out_t:] == self.image_mask_token), \
+        assert torch.all(prompt_THW[:, out_t:] == self.mask_token_id), \
             f"when generating z{out_t}, frames {out_t} and later must be masked"
 
         # this will be modified by maskgit_generate_step
         unmasked = self.init_mask(prompt_THW)
         # unmasked are modified in place on each iteration of this loop
         logits_CHW = None
-        for step in tqdm(range(maskgit_steps)):
-            sample_HW, logits_CHW = self.maskgit_generate_step(
-                prompt_THW, out_t, step, unmasked, logits_CHW, maskgit_steps, temperature)
-            # feed back to iteratively decode
+        if single_pass:
+            logits_CTHW = self.pred_tokens(prompt_THW)
+            logits_CHW = logits_CTHW[:, :-1, out_t]
+            sample_HW = logits_CHW.argmax(dim=1)
             prompt_THW[:, out_t] = sample_HW
+        else:
+            for step in tqdm(range(maskgit_steps)):
+                sample_HW, logits_CHW = self.maskgit_generate_step(
+                    prompt_THW, out_t, step, unmasked, logits_CHW, maskgit_steps, temperature)
+                # feed back to iteratively decode
+                prompt_THW[:, out_t] = sample_HW
         # Return the final sample and logits
         return sample_HW, logits_CHW
 
-
-class LitWorldModel(L.LightningModule, PyTorchModelHubMixin):
-    def __init__(
-        self,
-        T,
-        S,
-        image_vocab_size,
-        min_mask_rate=0.5,
-        max_mask_rate=1.0,
-        num_layers=12,
-        num_heads=16,
-        d_model=1024,
-        use_mup=False,
-    ):
-        # T -- temporal sequence length, e.g.16
-        # S -- spatial sequence length, e.g. 20x20 = 400
-        super().__init__()
-        self.model = STWorldModel(T, S, image_vocab_size, num_layers, num_heads, d_model, use_mup)
-        self.T = T
-        self.h = self.w = int(math.sqrt(S))
-        self.image_vocab_size = image_vocab_size
-
-        # MaskGIT params
-        self.min_mask_rate = min_mask_rate
-        self.max_mask_rate = max_mask_rate
-        self.max_random_token_rate = 0.1  # Probability of corrupting remaining unmasked tokens
-        self.use_mup = use_mup
-
-        # Register forward hooks for logging/debugging
-        for st_block_idx, st_block in enumerate(self.model.decoder.layers):
-            name = f"stblock{st_block_idx}_spatial"
-            hook = partial(self.log_max_attn_values, suffix=name)
-            st_block.spatial_attn.register_forward_hook(hook)
-            name = f"stblock{st_block_idx}_temporal"
-            hook = partial(self.log_max_attn_values, suffix=name)
-            st_block.temporal_attn.register_forward_hook(hook)
-
-    def log_max_attn_values(self, module, input, output, suffix):
+    def log_max_attn_values(self, module, input, output, module_abbr):
+        # TODO: Currently this seems to be the min/max after taking mean over batch dim, and after out_proj
+        # Better to do actual attention matrix, but maybe hard to do with flash attention?
         # See if intermediate values are exploding
         if self.training:
-            x = torch.mean(output, dim=0)
-            self.log(f"max_qkv/{suffix}", torch.max(x).float(), rank_zero_only=True)
-            self.log(f"min_qkv/{suffix}", torch.min(x).float(), rank_zero_only=True)
+            module_buffer = self.get_buffer(module_abbr)
+            # module_buffer += torch.tensor([
+            #     [, 0],
+            #     [, 0]
+            # ], device=module_buffer.device)
+            # breakpoint()
+            # x = torch.mean(output, dim=0)
+            # # self., torch.max(x).float(), rank_zero_only=True)
+            # self.log(f"min_qkv/{module_abbr}", torch.min(x).float(), rank_zero_only=True)
 
-    def compute_loss(self, x_THW, x_targets, batch_idx, split, is_masked_THW):
-        # x_THW is for z0,...,zT while x_targets is z1,...,zT
-        x_output = self.model(x_THW)
-
+    def compute_loss(self, logits, x_targets, is_masked_THW):
         # Video token prediction
-        x_output = x_output[:, :, 1:]
+        x_output = logits[:, :, 1:]
         x_targets = x_targets[:, 1:]
         # loss = F.cross_entropy(x_output, x_targets)
         loss_masked_THW = F.cross_entropy(x_output, x_targets, reduction="none")
-        self.log(f"img_loss/{split}", loss_masked_THW.mean(), rank_zero_only=True)
-        acc = accuracy(x_output, x_targets)
-        self.log(f"img_acc/{split}", acc, add_dataloader_idx=False, rank_zero_only=True)
+        # self.log(f"img_loss/{split}", loss_masked_THW.mean(), rank_zero_only=True)
+        # acc = accuracy(x_output, x_targets)
+        # self.log(f"img_acc/{split}", acc, add_dataloader_idx=False, rank_zero_only=True)
         # multiply loss values by mask instead of indexing them in compute_loss, more computationally
         # efficient. Compute the mean masked error.
         loss_masked_tokens = torch.sum(loss_masked_THW * is_masked_THW) / torch.sum(is_masked_THW)
-        self.log(f"masked_img_loss/{split}", loss_masked_tokens, prog_bar=True, rank_zero_only=True)
-        acc_THW = torch.sum((x_output.argmax(dim=1) == x_targets) * is_masked_THW).float() / torch.sum(is_masked_THW)
-        self.log(f"masked_img_acc/{split}", acc_THW, prog_bar=True, rank_zero_only=True)
+        # self.log(f"masked_img_loss/{split}", loss_masked_tokens, prog_bar=True, rank_zero_only=True)
+        # acc_THW = torch.sum((x_output.argmax(dim=1) == x_targets) * is_masked_THW).float() / torch.sum(is_masked_THW)
+        # self.log(f"masked_img_acc/{split}", acc_THW, prog_bar=True, rank_zero_only=True)
 
         # only optimize on the masked/noised logits?
         return loss_masked_tokens
+        # return loss_masked_THW.mean()
 
-    def training_step(self, batch, batch_idx, split="train"):
-        x = rearrange(batch['input_ids'], "b (t h w) -> b t h w", t=self.T, h=self.h, w=self.w)
+    def forward(self, input_ids, **kwargs):
+        x = rearrange(input_ids, "b (t h w) -> b t h w", t=self.config.T, h=self.h, w=self.w)
 
         # we don't need to track gradients through these operations
         with torch.no_grad():
@@ -209,74 +223,36 @@ class LitWorldModel(L.LightningModule, PyTorchModelHubMixin):
             # As done in Copilot-4D paper, add random noise sampled with a random rate between 0-20%
             r = torch.rand(x_THW.size(), device=x_THW.device)
             u01 = torch.rand((), device=x_THW.device)
-            random_patches_mask = r < self.max_random_token_rate * u01
-            random_values = torch.randint(low=0, high=self.image_vocab_size, size=x_THW.size(), dtype=torch.long,
-                                          device=x_THW.device)
+            random_patches_mask = r < self.config.max_random_token_rate * u01
+            random_values = torch.randint(low=0, high=self.config.image_vocab_size + 1, size=x_THW.size(),
+                                          dtype=torch.long, device=x_THW.device)
             x_THW[random_patches_mask] = random_values[random_patches_mask]
 
             x_THW_view = x_THW[:, 1:]
 
             # per-minibatch, per-frame masking probability
-            mask_prob_T = self.min_mask_rate + (self.max_mask_rate - self.min_mask_rate) \
+            mask_prob_T = self.config.min_mask_rate + (self.config.max_mask_rate - self.config.min_mask_rate) \
                 * torch.rand(x_THW_view.size(0), x_THW_view.size(1), device=x.device)
             r = torch.rand(x_THW_view.size(), device=x_THW_view.device)
             mask = r < mask_prob_T.unsqueeze(-1).unsqueeze(-1)
             # masking the view also masks x_TS
-            x_THW_view[mask] = self.model.image_mask_token
+            x_THW_view[mask] = self.mask_token_id
 
         # Record the loss over masked tokens only to make it more comparable to LLM baselines
         is_masked = mask | random_patches_mask[:, 1:]
-        loss = self.compute_loss(x_THW, x, batch_idx, split, is_masked)
 
-        return loss
+        # x_THW is for z0,...,zT while x_targets is z1,...,zT
+        logits = self.pred_tokens(x_THW)
+        loss = self.compute_loss(logits, x, is_masked)
 
-    def validation_step(self, batch, batch_idx):
-        # Compute same metrics as done in train
-        return self.training_step(batch, batch_idx, split="val")
-
-    def configure_optimizers(self):
-        lr = 1e-4
-        opt = torch.optim.AdamW(self.parameters(), lr=lr, betas=(0.9, 0.9), weight_decay=1e-4)
-
-        scheduler = get_scheduler(
-            name="cosine",
-            optimizer=opt,
-            num_warmup_steps=5_000,
-            num_training_steps=300_000,
-        )
-
-        return {
-            "optimizer": opt,
-            "lr_scheduler": {
-                "scheduler": scheduler,
-                "interval": "step",
-            },
-        }
-
-    @classmethod
-    def load_model(cls, hf_checkpoint=None, lightning_checkpoint=None, **kwargs):
-        """
-        kwargs: extra arguments passed to `LitWorldModel` when loading from `lightning_checkpoint`, like
-            `num_layers`, `num_heads`
-        """
-        assert (hf_checkpoint is not None) ^ (lightning_checkpoint is not None), \
-            "Exactly one of `hf_checkpoint` and `lightning_checkpoint` should be provided."
-
-        if hf_checkpoint is not None:
-            return LitWorldModel.from_pretrained(hf_checkpoint).model
-        else:
-            return LitWorldModel.load_from_checkpoint(
-                lightning_checkpoint, **kwargs
-            ).model
+        return ModelOutput(loss=loss, logits=rearrange(logits, "B C T H W -> B (T H W) C"))
 
     def init_weights(self):
-        if not self.use_mup:
-            return
-
+        """ Works with and without muP. """
         std = 0.02
         for module in self.modules():
             if isinstance(module, nn.Linear):
-                if hasattr(module.weight, "infshape"):
+                if hasattr(module.weight, "infshape"):  # muP
                     mup.normal_(module.weight, mean=0.0, std=std)
                 else:
                     module.weight.data.normal_(mean=0.0, std=std)
@@ -287,3 +263,8 @@ class LitWorldModel(L.LightningModule, PyTorchModelHubMixin):
                 module.weight.data.normal_(mean=0.0, std=std)
                 if module.padding_idx is not None:
                     module.weight.data[module.padding_idx].zero_()
+
+
+def accuracy(logits, targets):
+    _, preds = torch.max(logits, dim=1)
+    return torch.sum(preds == targets) / logits.shape[0]

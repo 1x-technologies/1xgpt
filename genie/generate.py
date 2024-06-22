@@ -11,7 +11,7 @@ import numpy as np
 
 sys.path.append(os.getcwd())
 from data import RawTokenDataset
-from genie.genie_world_model import LitWorldModel
+from genie.st_mask_git import LitWorldModel
 
 STRIDE = 15
 

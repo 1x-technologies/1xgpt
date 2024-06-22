@@ -8,11 +8,9 @@ from collections import defaultdict
 from pathlib import Path
 
 import lpips
-import numpy as np
 import torch
-import torchvision.transforms.functional as transforms_f
 from einops import rearrange
-from torch.utils.data import DataLoader, Subset
+from torch.utils.data import DataLoader
 from tqdm import tqdm
 from transformers import default_data_collator
 
@@ -20,8 +18,8 @@ from transformers import default_data_collator
 sys.path.append(os.getcwd())
 from data import RawTokenDataset
 from visualize import decode_latents_wrapper
-from evaluate import decode_tokens, compute_loss_and_acc, compute_lpips, AvgMetric
-from genie.genie_world_model import LitWorldModel
+from llama.evaluate import decode_tokens, compute_loss_and_acc, compute_lpips, AvgMetric
+from genie.st_mask_git import STMaskGIT
 
 # Hardcoded values for the final dataset
 WINDOW_SIZE = 16
@@ -36,12 +34,8 @@ def parse_args():
         help="A directory with video data, should have a `metadata.json` and `video.bin`."
     )
     parser.add_argument(
-        "--hf_checkpoint", type=str,
-        help="Path to a HuggingFace checkpoint."
-    )
-    parser.add_argument(
-        "--lightning_checkpoint", type=str,
-        help="Path to a local Lightning checkpoint."
+        "--checkpoint_dir", type=str,
+        help="Path to a HuggingFace-style checkpoint."
     )
     parser.add_argument(
         "--batch_size", type=int, default=16,
@@ -83,12 +77,7 @@ class GenieEvaluator:
     def __init__(self, args, wrapped_decode_latents, device="cuda"):
         super().__init__()
 
-        self.model = LitWorldModel.load_model(
-            hf_checkpoint=args.hf_checkpoint, lightning_checkpoint=args.lightning_checkpoint,
-            T=WINDOW_SIZE, S=LATENT_H * LATENT_W,
-            image_vocab_size=1001, num_layers=args.num_layers,
-            num_heads=args.num_heads, d_model=args.d_model
-        ).to(device)
+        self.model = STMaskGIT.from_pretrained(args.checkpoint_dir).to(device)
 
         self.model.eval()
 
@@ -163,23 +152,10 @@ class GenieEvaluator:
 def main():
     args = parse_args()
 
-    val_dataset = RawTokenDataset(args.val_data_dir, window_size=WINDOW_SIZE, stride=STRIDE)
+    val_dataset = RawTokenDataset(args.val_data_dir, window_size=WINDOW_SIZE, stride=STRIDE, filter_overlaps=True)
     decode_latents = decode_latents_wrapper(unet_checkpoint_path=val_dataset.metadata["unet"])
     lpips_alex = lpips.LPIPS(net="alex")  # Calculate LPIPS w/ AlexNet, which is the fastest model out of their options
 
-    # To save time, instead of using a sliding window, use each frame at most once
-    filtered_start_inds = []
-    for start_ind in val_dataset.valid_start_inds:
-        overlapping_start_inds = {start_ind - i * STRIDE for i in range(1, WINDOW_SIZE)}
-        # all sequences from `overlapping_start_inds` will also contain `start_ind`,
-        # so exclude sequence starting from `start_ind` if any of `overlapping_start_inds` is already being used
-        for existing_start_ind in filtered_start_inds[-WINDOW_SIZE * STRIDE:]:  # Bound could be improved
-            if existing_start_ind in overlapping_start_inds:
-                break
-        else:
-            filtered_start_inds.append(start_ind)
-
-    val_dataset.valid_start_inds = filtered_start_inds
     if args.max_examples is not None:
         val_dataset.valid_start_inds = val_dataset.valid_start_inds[:args.max_examples]
 

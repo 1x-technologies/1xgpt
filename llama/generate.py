@@ -2,19 +2,22 @@
 
 import argparse
 import json
+import os
+import sys
 from pathlib import Path
 
 import numpy as np
 import torch
 from transformers import AutoModelForCausalLM
 
+sys.path.append(os.getcwd())
 from data import RawTokenDataset
 
 STRIDE = 15
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Generate video using a trained transformers model.")
+    parser = argparse.ArgumentParser(description="Generate video using a trained Llama-style LLM.")
     parser.add_argument(
         "--val_data_dir", type=str, default="data/val_v0",
         help="A directory with video data, should have a `metadata.json` and `video.bin`."
