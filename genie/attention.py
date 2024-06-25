@@ -1,7 +1,3 @@
-import os
-import warnings
-from typing import Optional
-
 import torch
 from torch import nn
 
@@ -40,8 +36,8 @@ class SelfAttention(nn.Module):
             k = k.to(dtype=v.dtype)
 
         attn_bias = LowerTriangularMask() if causal else None
+        x = memory_efficient_attention(q, k, v, attn_bias=attn_bias, scale=self.scale)
 
-        x = memory_efficient_attention(q, k, v, attn_bias=attn_bias)
         x = x.reshape([B, N, C])
 
         x = self.proj(x)

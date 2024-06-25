@@ -8,6 +8,7 @@ from collections import defaultdict
 from pathlib import Path
 
 import lpips
+import mup
 import torch
 from einops import rearrange
 from torch.utils.data import DataLoader
@@ -18,7 +19,7 @@ from transformers import default_data_collator
 sys.path.append(os.getcwd())
 from data import RawTokenDataset
 from visualize import decode_latents_wrapper
-from llama.evaluate import decode_tokens, compute_loss_and_acc, compute_lpips, AvgMetric
+from eval_utils import decode_tokens, compute_loss_and_acc, compute_lpips, AvgMetric
 from genie.st_mask_git import STMaskGIT
 
 # Hardcoded values for the final dataset
@@ -28,7 +29,7 @@ LATENT_H, LATENT_W = 20, 20  # Dimensions of the compressed image
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="")
+    parser = argparse.ArgumentParser(description="Evaluate GENIE-style models.")
     parser.add_argument(
         "--val_data_dir", type=str, default="data/val_v0",
         help="A directory with video data, should have a `metadata.json` and `video.bin`."
@@ -40,15 +41,6 @@ def parse_args():
     parser.add_argument(
         "--batch_size", type=int, default=16,
         help="Batch size, current script only supports a single GPU."
-    )
-    parser.add_argument(
-        "--num_layers", type=int, default=12, help="Num hidden layers"
-    )
-    parser.add_argument(
-        "--num_heads", type=int, default=16, help="Num attention heads"
-    )
-    parser.add_argument(
-        "--d_model", type=int, default=1024, help="Hidden size"
     )
     parser.add_argument(
         "--maskgit_steps", type=int, default=8, help="Number of maskgit sampling steps."
@@ -79,6 +71,13 @@ class GenieEvaluator:
 
         self.model = STMaskGIT.from_pretrained(args.checkpoint_dir).to(device)
 
+        base_config = self.model.config.shallow_copy()  # TODO: store with checkpoint
+        base_config.num_heads = 8
+        base_config.d_model = 256
+        base_model = STMaskGIT(base_config)
+
+        mup.set_base_shapes(self.model, base_model)
+
         self.model.eval()
 
         self.wrapped_decode_latents = wrapped_decode_latents
@@ -108,18 +107,13 @@ class GenieEvaluator:
         for timestep in range(1, WINDOW_SIZE):
             print(f"Generating frame {timestep}")
             inputs_masked = inputs_THW.clone()
-            inputs_masked[:, timestep:] = self.model.image_mask_token
+            inputs_masked[:, timestep:] = self.model.mask_token_id
 
-            if self.args.single_pass:
-                logits_CTHW = self.model(inputs_masked)
-                logits_CHW = logits_CTHW[:, :-1, timestep]
-                sample_HW = logits_CHW.argmax(dim=1)
-            else:
-                # maskgit sampling
-                sample_HW, logits_CHW = self.model.maskgit_generate(
-                    inputs_masked, out_t=timestep, maskgit_steps=self.args.maskgit_steps,
-                    temperature=self.args.temperature
-                )
+            # maskgit sampling
+            sample_HW, logits_CHW = self.model.maskgit_generate(
+                inputs_masked, out_t=timestep, maskgit_steps=self.args.maskgit_steps,
+                temperature=self.args.temperature, single_pass=self.args.single_pass,
+            )
 
             all_samples.append(sample_HW)
             all_logits.append(logits_CHW)

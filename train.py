@@ -586,6 +586,7 @@ def main():
             # Manual gradient accumulation because accelerator somehow taking a lot of memory
             is_update_step = (step + 1) % args.gradient_accumulation_steps == 0
             ctx_manager = contextlib.nullcontext() if is_update_step else accelerator.no_sync(model)
+
             with ctx_manager:
                 outputs = model(**batch)
                 loss = outputs.loss
@@ -639,18 +640,23 @@ def main():
                 num_correct = 0
                 num_total = 0
                 for step, batch in enumerate(eval_dataloader):
+                    batch_size = len(batch["input_ids"])  # Last batch might not be full
                     with torch.no_grad():
                         outputs = model(**batch)
 
                     loss = outputs.loss
-                    eval_losses.append(accelerator.gather_for_metrics(loss.repeat(args.per_device_eval_batch_size)))
+                    eval_losses.append(accelerator.gather_for_metrics(loss.repeat(batch_size)))
 
-                    shifted_preds = torch.argmax(outputs.logits[:, :-1, :], dim=-1)
-                    shifted_labels = batch["input_ids"][:, 1:]
-                    num_correct += accelerator.gather_for_metrics((shifted_preds == shifted_labels).sum()).sum().item()
-                    num_total += accelerator.gather_for_metrics(torch.tensor(torch.numel(shifted_labels),
-                                                                             device=accelerator.device)).sum().item()
-
+                    if "acc" in outputs:
+                        # `num_correct` and `num_total` actually track mean accuracy in this case.
+                        num_correct += accelerator.reduce(outputs.acc, reduction="mean").item() * batch_size
+                        num_total += batch_size
+                    else:
+                        shifted_preds = torch.argmax(outputs.logits[:, :-1, :], dim=-1)
+                        shifted_labels = batch["input_ids"][:, 1:]
+                        num_correct += accelerator.gather_for_metrics((shifted_preds == shifted_labels).sum()).sum().item()
+                        num_total += accelerator.gather_for_metrics(torch.tensor(torch.numel(shifted_labels),
+                                                                                 device=accelerator.device)).sum().item()
                     if step >= args.max_eval_steps:
                         break
 

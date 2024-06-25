@@ -30,6 +30,7 @@ class STMaskGIT(nn.Module, PyTorchModelHubMixin):
         self.decoder = STTransformerDecoder(config)
         self.pos_embed_TSC = torch.nn.Parameter(torch.zeros(1, config.T, config.S, config.d_model))
         self.out_x_proj = (mup.MuReadout if config.use_mup else nn.Linear)(config.d_model, total_vocab_size)  # TODO: image_vocab_size instead?
+        # MuReadout instead of nn.Linear slows down compiled training?
 
         # Register forward hooks for logging/debugging
         # Also register buffers which will accumulate these statistics
@@ -190,25 +191,24 @@ class STMaskGIT(nn.Module, PyTorchModelHubMixin):
             # # self., torch.max(x).float(), rank_zero_only=True)
             # self.log(f"min_qkv/{module_abbr}", torch.min(x).float(), rank_zero_only=True)
 
-    def compute_loss(self, logits, x_targets, is_masked_THW):
+    def compute_loss(self, logits, x_targets, relevant_mask_THW):
         # Video token prediction
         x_output = logits[:, :, 1:]
         x_targets = x_targets[:, 1:]
-        # loss = F.cross_entropy(x_output, x_targets)
-        loss_masked_THW = F.cross_entropy(x_output, x_targets, reduction="none")
-        # self.log(f"img_loss/{split}", loss_masked_THW.mean(), rank_zero_only=True)
+        loss_THW = F.cross_entropy(x_output, x_targets, reduction="none")
+        # self.log(f"img_loss/{split}", loss_THW.mean(), rank_zero_only=True)
         # acc = accuracy(x_output, x_targets)
         # self.log(f"img_acc/{split}", acc, add_dataloader_idx=False, rank_zero_only=True)
         # multiply loss values by mask instead of indexing them in compute_loss, more computationally
         # efficient. Compute the mean masked error.
-        loss_masked_tokens = torch.sum(loss_masked_THW * is_masked_THW) / torch.sum(is_masked_THW)
-        # self.log(f"masked_img_loss/{split}", loss_masked_tokens, prog_bar=True, rank_zero_only=True)
-        # acc_THW = torch.sum((x_output.argmax(dim=1) == x_targets) * is_masked_THW).float() / torch.sum(is_masked_THW)
+        relevant_loss = torch.sum(loss_THW * relevant_mask_THW) / torch.sum(relevant_mask_THW)
+        # self.log(f"masked_img_loss/{split}", relevant_loss, prog_bar=True, rank_zero_only=True)
+        relevant_acc = torch.sum((x_output.argmax(dim=1) == x_targets) * relevant_mask_THW).float() / torch.sum(relevant_mask_THW)
         # self.log(f"masked_img_acc/{split}", acc_THW, prog_bar=True, rank_zero_only=True)
 
         # only optimize on the masked/noised logits?
-        return loss_masked_tokens
-        # return loss_masked_THW.mean()
+        return relevant_loss, relevant_acc
+        # return loss_THW.mean()
 
     def forward(self, input_ids, **kwargs):
         x = rearrange(input_ids, "b (t h w) -> b t h w", t=self.config.T, h=self.h, w=self.w)
@@ -243,9 +243,10 @@ class STMaskGIT(nn.Module, PyTorchModelHubMixin):
 
         # x_THW is for z0,...,zT while x_targets is z1,...,zT
         logits = self.pred_tokens(x_THW)
-        loss = self.compute_loss(logits, x, is_masked)
+        relevant_loss, relevant_acc = self.compute_loss(logits, x, is_masked)
 
-        return ModelOutput(loss=loss, logits=rearrange(logits, "B C T H W -> B (T H W) C"))
+        return ModelOutput(loss=relevant_loss, logits=rearrange(logits, "B C T H W -> B (T H W) C"),
+                           acc=relevant_acc)
 
     def init_weights(self):
         """ Works with and without muP. """

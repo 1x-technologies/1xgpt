@@ -1,1 +1,0 @@
-{"num_layers": 24, "num_heads": 8, "d_model": 256, "T": 16, "S": 400, "image_vocab_size": 1000, "use_mup": false, "min_mask_rate": 0.5, "max_mask_rate": 1.0, "max_random_token_rate": 0.1, "qkv_bias": false, "proj_bias": true, "attn_drop": 0.0, "qk_norm": true, "mlp_ratio": 4.0, "mlp_drop": 0.0, "mlp_bias": true}

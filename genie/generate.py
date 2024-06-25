@@ -6,12 +6,13 @@ import os
 import sys
 from pathlib import Path
 
+import mup
 import torch
 import numpy as np
 
 sys.path.append(os.getcwd())
 from data import RawTokenDataset
-from genie.st_mask_git import LitWorldModel
+from genie.st_mask_git import STMaskGIT
 
 STRIDE = 15
 
@@ -23,12 +24,8 @@ def parse_args():
         help="A directory with video data, should have a `metadata.json` and `video.bin` We generate using the first frames of this dataset."
     )
     parser.add_argument(
-        "--hf_checkpoint", type=str,
-        help="Path to a HuggingFace checkpoint."
-    )
-    parser.add_argument(
-        "--lightning_checkpoint", type=str,
-        help="Path to a local Lightning checkpoint."
+        "--checkpoint_dir", type=str,
+        help="Path to a HuggingFace-style checkpoint."
     )
     parser.add_argument(
         "--output_dir", type=str, default="data/genie_generated", help="Directory to save generated outputs."
@@ -48,15 +45,6 @@ def parse_args():
     parser.add_argument(
         "--single_pass", action="store_true",
         help="If True, takes argmax of single forward pass on fully masked inputs"
-    )
-    parser.add_argument(
-        "--num_layers", type=int, default=12, help="Num hidden layers"
-    )
-    parser.add_argument(
-        "--num_heads", type=int, default=16, help="Num attention heads"
-    )
-    parser.add_argument(
-        "--d_model", type=int, default=1024, help="Hidden size"
     )
     parser.add_argument(
         "--maskgit_steps", type=int, default=8, help="Number of maskgit sampling steps."
@@ -80,18 +68,20 @@ def main():
                                                                      latent_side_len).to("cuda")
 
     # Load the model checkpoint
-    model = LitWorldModel.load_model(
-        hf_checkpoint=args.hf_checkpoint, lightning_checkpoint=args.lightning_checkpoint,
-        T=args.window_size, S=latent_side_len ** 2,
-        image_vocab_size=1001, num_layers=args.num_layers,
-        num_heads=args.num_heads, d_model=args.d_model
-    ).to("cuda")
+    model = STMaskGIT.from_pretrained(args.checkpoint_dir).to("cuda")
+
+    base_config = model.config.shallow_copy()  # TODO: store with checkpoint
+    base_config.num_heads = 8
+    base_config.d_model = 256
+    base_model = STMaskGIT(base_config)
+
+    mup.set_base_shapes(model, base_model)
 
     model.eval()
 
     samples = []
     prompt_THW = example_THW.clone()
-    prompt_THW[:, args.num_prompt_frames:] = model.image_mask_token
+    prompt_THW[:, args.num_prompt_frames:] = model.mask_token_id
 
     if args.single_pass:
         # debugging viz: Teacher-forced across time, argmax 
@@ -99,8 +89,8 @@ def main():
             if args.teacher_force_time:
                 prompt_THW = example_THW.clone()
                 # Masked prediction for this timestep only, after which we provide ground-truth
-                prompt_THW[:, timestep:] = model.image_mask_token
-            logits_CTHW = model(prompt_THW)
+                prompt_THW[:, timestep:] = model.mask_token_id
+            logits_CTHW = model.pred_tokens(prompt_THW)
             sample_HW = logits_CTHW[:, :, timestep].argmax(dim=1)
             samples.append(sample_HW)
             if not args.teacher_force_time:
