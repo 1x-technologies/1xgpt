@@ -21,7 +21,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Generates samples (as tokens) from GENIE model. "
                                                  "Optionally visualizes these tokens as GIFs or comics.")
     parser.add_argument(
-        "--val_data_dir", type=str, default="data/val_v0.1.0",
+        "--val_data_dir", type=str, default="data/val_v1.0",
         help="A directory with video data, should have a `metadata.json` and `video.bin` We generate using the first frames of this dataset."
     )
     parser.add_argument(
@@ -48,10 +48,10 @@ def parse_args():
         help="If True, teacher-forces generation in time dimension."
     )
     parser.add_argument(
-        "--maskgit_steps", type=int, default=8, help="Number of MaskGIT sampling steps."
+        "--maskgit_steps", type=int, default=1, help="Number of MaskGIT sampling steps."
     )
     parser.add_argument(
-        "--temperature", type=float, default=1.,
+        "--temperature", type=float, default=0,
         help="Sampling temperature. If `temperature` <= 1e-8, will do greedy sampling."
     )
     parser.add_argument(

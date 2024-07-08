@@ -57,7 +57,7 @@ python visualize.py --token_dir data/genie_generated
 python genie/evaluate.py --checkpoint_dir data/genie_model/final_checkpt
 
 # Generate or evaluate the 1X baseline model
-python genie/generate.py --checkpoint_dir 1x-technologies/GENIE_35M
+python genie/generate.py --checkpoint_dir 1x-technologies/GENIE_35M --example_ind 150  # 150 is cherry-picked
 python genie/evaluate.py --checkpoint_dir 1x-technologies/GENIE_35M
 ```
  
