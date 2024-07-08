@@ -1,80 +1,89 @@
 import argparse
 import contextlib
-import json
 import logging
 import math
 import os
+import time
 
+import matplotlib
+import mup
 import numpy as np
 import torch
 import torchvision.transforms.functional as transforms_f
 from accelerate import Accelerator
 from accelerate.logging import get_logger
 from accelerate.utils import set_seed
-from calflops import calculate_flops
 from einops import rearrange
 from lpips import lpips
-from matplotlib import pyplot as plt
-from torch.utils.data import DataLoader, Subset
+from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 import transformers
 from transformers import (
-    AutoModelForCausalLM,
     default_data_collator,
     get_scheduler,
 )
 
-from data import RawTokenDataset
-from evaluate import decode_tokens, compute_lpips
+from data import RawTokenDataset, get_maskgit_collator
+from eval_utils import decode_tokens, compute_lpips
+from genie.st_mask_git import GenieConfig, STMaskGIT
+# from llama.config import LlamaConfig1X
+# from llama.modeling_llama_mup import LlamaForCausalLM
 from visualize import decode_latents_wrapper
 
-torch.set_float32_matmul_precision("medium")
-torch._dynamo.config.cache_size_limit = 64
+matplotlib.use("Agg")
+from matplotlib import pyplot as plt
 
+torch.set_float32_matmul_precision("medium")
 logger = get_logger(__name__)
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Finetune a transformers model on a causal language modeling task")
+    # parser = argparse.ArgumentParser(description="Train a MaskGIT or Llama-style LLM on video generation.")
+    parser = argparse.ArgumentParser(description="Train a spatial-temporal MaskGIT-style model on video generation.")
 
     # Data
     parser.add_argument(
-        "--train_data_dir", type=str, default="data/train_v0", help="Directory containing tokenized data, should have a `metadata.json` and `video.bin`."
+        "--train_data_dir", type=str, default="data/train_v1.0",
+        help="Directory containing tokenized data, should have a `video.bin`, `metadata.json` and `segment_ids.json`."
     )
     parser.add_argument(
-        "--val_data_dir", type=str, default="data/val_v0", help="Directory containing tokenized data, should have a `metadata.json` and `video.bin`."
+        "--val_data_dir", type=str, default="data/val_v1.0",
+        help="Directory containing tokenized data, should have a `video.bin`, `metadata.json` and `segment_ids.json`."
     )
     parser.add_argument(
         "--window_size",
         type=int,
         default=16,
-        help="Number of frames to train sequence on",
+        help="Number of frames to in a sequence.",
     )
     parser.add_argument(
         "--stride",
         type=int,
         default=15,
-        help="skip every stride images.",
+        help="Difference in frame count between consecutive frames in a sequence.",
     )
     parser.add_argument(
-        "--chunk_skip_size",
-        type=int,
-        default=1,
-        help=("If not specified, by default every frame will be appear in the dataset `window_size` times. "
-              "E.g. (frame_0, frame_15, frame_31, ...), (frame_15, frame_31, frame_47, ...), (frame31, frame_47, frame_63, ...). "
-              "If specified, will only include every `chunk_skip_size` of these chunks in the dataset."
-              "E.g. if `chunk_skip_size=2`, (frame_0, frame_15, frame_31, ...), (frame31, frame_47, frame_63, ...)."
-              "`chunk_skip_size=window_size` corresponds to each frame only appearing once in the dataset.")
+        "--filter_overlaps",
+        action="store_true",
+        help=(
+            "Whether to filter repeated frames in the train dataset (`filter_overlaps` always true for the val set). "
+            "Filtering essentially makes the training dataset less correlated but ~16x smaller, "
+            "see the `filter_overlaps` argument in `RawTokenDataset` for details.")
+        ,
     )
 
     # Model
     parser.add_argument(
-        "--model_config",
+        "--llama_config",
         type=str,
-        required=True,
-        help="Huggingface-style model config json. "
+        help="`transformers.LlamaConfig` json. "
              "E.g. https://huggingface.co/1x-technologies/Llama_1B_v0/blob/main/config.json",
     )
+    parser.add_argument(
+        "--genie_config",
+        type=str,
+        help="GenieConfig json."
+    ),
     parser.add_argument(
         "--warmstart_path",
         type=str,
@@ -130,14 +139,20 @@ def parse_args():
     parser.add_argument(
         "--max_eval_steps",
         type=int,
-        default=10,
-        help="Only evaluate on `max_eval_steps` batches of validation data, faster.",
+        default=1e10,
+        help="Only evaluate on `max_eval_steps` batches of validation data per process, faster.",
     )
     parser.add_argument(
         "--eval_every_n_steps",
         type=int,
         default=1000,
         help="Eval every N training steps.",
+    )
+    parser.add_argument(
+        "--vis_every_n_steps",
+        type=int,
+        default=1000,
+        help="Visualize every N training steps.",
     )
     parser.add_argument(
         "--lr_scheduler_type",
@@ -196,11 +211,18 @@ def parse_args():
     parser.add_argument(
         "--report_to",
         type=str,
-        default="all",
-        help=(
-            'The integration to report the results and logs to. Current code assumes `wandb` is being used.'
-            'Use `"all"` (default) to report to all integrations. '
-        ),
+        default="wandb",
+        help="The integration to report the results and logs to.",
+    )
+    parser.add_argument(
+        "--mu_transfer",
+        action="store_true",
+        help="If specified, will train with mu transfer reparametrizations. Only supports Llama models."
+    )
+    parser.add_argument(
+        "--no_compile",
+        action="store_true",
+        help="If specified, will not compile the model."
     )
 
     args = parser.parse_args()
@@ -227,19 +249,19 @@ def save_checkpoint(model, accelerator, args, filename):
 
 
 @torch.no_grad()
-def visualize(accelerator, model, dataloader, window_size, metadata, metrics_prefix="eval", max_steps=1):
+def visualize(accelerator, model, dataloader, window_size, metrics_prefix="eval", max_steps=1):
     """
     Visualizes model's autoregressive generation outputs, logged to wandb.
 
-    metadata: contains `s` (latent side length) and `unet` (path to U-Net checkpoint)
     metrics_prefix: each metric is logged as f"{metrics_prefix}_{metric_key}". Also used in name of wandb figure.
     """
     accelerator.wait_for_everyone()
     unwrapped_model = accelerator.unwrap_model(model)
 
-    decode_latents = decode_latents_wrapper(unet_checkpoint_path=metadata["unet"], max_images=1e10)  # re-initializing every time to save memory
+    metadata = dataloader.dataset.metadata
+    decode_latents = decode_latents_wrapper()  # re-initializing every time to save memory
     if accelerator.is_main_process:
-        lpips_alex = lpips.LPIPS(net="alex")  # Calculate LPIPS w/ AlexNet, which is the fastest model out of their options
+        lpips_alex = lpips.LPIPS(net="alex")  # Calculate LPIPS w/ AlexNet, the fastest option
         metrics = {"pred_lpips": []}
 
     latent_side_len = metadata["s"]
@@ -247,16 +269,16 @@ def visualize(accelerator, model, dataloader, window_size, metadata, metrics_pre
     unwrapped_model.eval()
     for step, batch in enumerate(dataloader):
         # Note: hardcoding 4 image cap for faster inference on small models
-        reshaped_input_ids = rearrange(batch["input_ids"][:4], "b (t s) -> b t s", t=window_size).to(model.device)  # `s` is really `(h, w)`
+        reshaped_labels = rearrange(batch["labels"][:4], "b (t s) -> b t s", t=window_size).to(accelerator.device)  # `s` is really `(h, w)`
 
         num_prompt_frames = window_size // 2  # hardcoding half of frames for context
         num_new_tokens = latent_side_len ** 2 * (window_size - num_prompt_frames)
-        prompt_input_ids = rearrange(reshaped_input_ids[:, :num_prompt_frames], "b t s -> b (t s)")
+        prompt_input_ids = rearrange(reshaped_labels[:, :num_prompt_frames], "b t s -> b (t s)")
         outputs = unwrapped_model.generate(input_ids=prompt_input_ids, attention_mask=torch.ones_like(prompt_input_ids),
                                            max_new_tokens=num_new_tokens, min_new_tokens=num_new_tokens)
         output_tokens = rearrange(outputs, "b (t h w) -> b t h w", t=window_size,
                                   h=latent_side_len, w=latent_side_len)
-        gtruth_tokens = rearrange(reshaped_input_ids[:, num_prompt_frames:], "b t (h w) -> b t h w",
+        gtruth_tokens = rearrange(reshaped_labels[:, num_prompt_frames:], "b t (h w) -> b t h w",
                                   h=latent_side_len, w=latent_side_len)
 
         decoded_output = decode_tokens(output_tokens.cpu(), decode_latents)
@@ -289,7 +311,7 @@ def visualize(accelerator, model, dataloader, window_size, metadata, metrics_pre
                 wandb_tracker.log({f"vis_{metrics_prefix}_{j}": fig}, commit=False)
                 plt.close(fig)
 
-            metrics["pred_lpips"].extend(compute_lpips(decoded_gtruth,  # Note: note parallelizing right now
+            metrics["pred_lpips"].extend(compute_lpips(decoded_gtruth,  # Note: not parallelizing right now
                                                        decoded_output[:, num_prompt_frames:], lpips_alex))
 
         if step + 1 >= max_steps:
@@ -306,10 +328,10 @@ def visualize(accelerator, model, dataloader, window_size, metadata, metrics_pre
 
 def main():
     args = parse_args()
+    assert (args.llama_config is not None) ^ (args.genie_config is not None), \
+        "Exactly one of `llama_config` and `genie_config` should be set."
 
-    # Initialize the accelerator. We will let the accelerator handle device placement for us in this example.
-    # If we're using tracking, we also need to initialize it here and it will by default pick up all supported trackers
-    # in the environment
+    # Manual gradient accumulation
     accelerator = Accelerator(gradient_accumulation_steps=1, log_with=args.report_to, project_dir=args.output_dir)
 
     # Make one log on every process with the configuration for debugging.
@@ -324,7 +346,6 @@ def main():
     else:
         transformers.utils.logging.set_verbosity_error()
 
-    # If passed along, set the training seed now.
     if args.seed is not None:
         set_seed(args.seed)
 
@@ -333,69 +354,78 @@ def main():
 
     accelerator.wait_for_everyone()
 
-    with open(os.path.join(args.train_data_dir, "metadata.json"), "r") as f:
-        vocab_size = json.load(f)["vocab_size"]
-
-    LATENT_SIDE_LEN = 20
-    # rope_theta 500_000: https://arxiv.org/abs/2309.16039
-    config = transformers.AutoConfig.from_pretrained(args.model_config, vocab_size=vocab_size,
-                                                     pad_token_id=None, attention_dropout=args.attention_dropout,
-                                                     max_position_embeddings=LATENT_SIDE_LEN**2 * args.window_size,
-                                                     rope_theta=500_000)
-
-    if hasattr(config, "max_sequence_length"):  # now `max_position_embeddings`
-        del config.max_sequence_length
-
-    logger.info("Training new model from scratch")
-    logging.info(config)
-
-    if args.warmstart_path is not None:
-        model = AutoModelForCausalLM.from_pretrained(args.warmstart_path,
-                                             attn_implementation="flash_attention_2")
-        model.model.embed_tokens = torch.nn.Embedding(config.vocab_size, config.hidden_size, config.pad_token_id)
-        model = model.to(dtype=torch.bfloat16)
-    else:
-        model = AutoModelForCausalLM.from_config(config,
-                                                 torch_dtype=torch.bfloat16,
-                                                 attn_implementation="flash_attention_2")
-
-    # compiling model after calculate_flops
-
-    train_dataset = RawTokenDataset(args.train_data_dir, window_size=args.window_size, stride=args.stride)
+    train_dataset = RawTokenDataset(args.train_data_dir, window_size=args.window_size,
+                                    stride=args.stride, filter_overlaps=args.filter_overlaps)
     if not args.overfit_first_batch:
-        eval_dataset = RawTokenDataset(args.val_data_dir, window_size=args.window_size, stride=args.stride)
-        eval_metadata = eval_dataset.metadata  # not directly accessible if eval_dataset becomes a `Subset`
+        eval_dataset = RawTokenDataset(args.val_data_dir, window_size=args.window_size,
+                                       stride=args.stride, filter_overlaps=True)
     else:
-        eval_metadata = train_dataset.metadata
-        train_dataset = torch.utils.data.Subset(train_dataset, np.arange(args.per_device_train_batch_size
+        train_dataset.valid_start_inds = train_dataset.valid_start_inds[:args.per_device_train_batch_size
                                                                          * args.gradient_accumulation_steps
-                                                                         * accelerator.num_processes))
+                                                                         * accelerator.num_processes]
         eval_dataset = train_dataset
 
-    chunked_train_inds = [i for chunk_start in range(args.stride)
-                          for i in range(chunk_start, len(train_dataset), args.stride * args.chunk_skip_size)]
-    train_dataset = Subset(train_dataset, chunked_train_inds)
+    assert all(train_dataset.metadata[shared_key] == eval_dataset.metadata[shared_key]
+               for shared_key in ("s", "vocab_size", "hz"))
 
-    # If we have enough examples, replace sliding window with chunking so that more frames are part of validation
-    chunked_eval_inds = [i for chunk_start in range(args.stride)
-                         for i in range(chunk_start, len(eval_dataset), args.stride * args.window_size)]
-    if len(chunked_eval_inds) >= args.max_eval_steps * args.per_device_eval_batch_size * accelerator.num_processes:
-        eval_dataset = Subset(eval_dataset, chunked_eval_inds)
+    latent_side_len, vocab_size, hz = [train_dataset.metadata[key] for key in ("s", "vocab_size", "hz")]
 
-    # DataLoaders creation:
-    train_dataloader = DataLoader(
-        train_dataset, shuffle=True, collate_fn=default_data_collator, batch_size=args.per_device_train_batch_size,
-        num_workers=4, pin_memory=True
-    )
+    if args.llama_config is not None:
+        raise NotImplementedError("Have not factorized Llama vocabulary.")
+        # # rope_theta 500_000: https://arxiv.org/abs/2309.16039
+        # config = LlamaConfig1X.from_pretrained(
+        #     args.llama_config,
+        #     vocab_size=vocab_size,
+        #     pad_token_id=None,
+        #     attention_dropout=args.attention_dropout,
+        #     max_position_embeddings=latent_side_len**2 * args.window_size,
+        #     rope_theta=500_000,
+        #     use_mup=args.mu_transfer,
+        #     _attn_implementation="flash_attention_2"
+        # )
+        #
+        # if hasattr(config, "max_sequence_length"):  # now `max_position_embeddings`
+        #     del config.max_sequence_length
+        #
+        # logger.info("Training new model from scratch")
+        # logging.info(config)
+        #
+        # if args.warmstart_path is not None:
+        #     raise NotImplementedError
+        #
+        #     # model = AutoModelForCausalLM.from_pretrained(args.warmstart_path,
+        #     #                                              attn_implementation="flash_attention_2")
+        #     # model.model.embed_tokens = torch.nn.Embedding(config.vocab_size, config.hidden_size, config.pad_token_id)
+        #     # model = model.to(dtype=torch.bfloat16)
+        #
+        # model = LlamaForCausalLM(config=config).to(dtype=torch.bfloat16)
+        #
+        # if args.mu_transfer:
+        #     base_config = LlamaConfig1X(**(copy.deepcopy(vars(config)) | {
+        #         "hidden_size": 512,
+        #         "intermediate_size": 1024,
+        #         "num_attention_heads": 8,
+        #     }))
+        #
+        #     base_model = LlamaForCausalLM(config=base_config)
+        #
+        #     mup.set_base_shapes(model, base_model)
+        #     model.apply(model._init_weights)  # Note: cannot simply call init_weights because `_is_hf_initialized` is already True
+        # else:
+        #     model = AutoModelForCausalLM.from_config(config,
+        #                                              torch_dtype=torch.bfloat16,
+        #                                              attn_implementation="flash_attention_2")
+    else:
+        config = GenieConfig.from_pretrained(args.genie_config)
+        config.use_mup = args.mu_transfer  # Note: changing this may affect pre-trained model due to attn scaling
+        config.image_vocab_size = vocab_size
+        config.T = args.window_size
+        config.S = latent_side_len**2
+        model = STMaskGIT(config)
 
-    # Shuffle eval dataset and then set shuffle=False on the dataloader.
-    # Shuffling in the dataloader results in reshuffling with each iteration.
-    shuffled_eval_dataset = Subset(eval_dataset, torch.randperm(len(eval_dataset),
-                                                                generator=torch.Generator().manual_seed(0)))
-    eval_dataloader = DataLoader(
-        shuffled_eval_dataset, collate_fn=default_data_collator, batch_size=args.per_device_eval_batch_size,
-        pin_memory=True, shuffle=False,
-    )
+        if args.mu_transfer:
+            model.set_mup_shapes(rescale_params=True)
+            model.init_weights()  # might be unnecessary if `rescale_params` is True
 
     # Optimizer
     # Split weights in two groups, one with weight decay and the other not.
@@ -411,8 +441,27 @@ def main():
         },
     ]
 
-    optimizer = torch.optim.AdamW(optimizer_grouped_parameters, lr=args.learning_rate,
-                                  betas=(args.adam_beta_1, args.adam_beta_2), eps=args.adam_eps)
+    opt_class = mup.MuAdamW if args.mu_transfer else torch.optim.AdamW
+    optimizer = opt_class(optimizer_grouped_parameters, lr=args.learning_rate,
+                          betas=(args.adam_beta_1, args.adam_beta_2), eps=args.adam_eps)
+
+    # DataLoaders creation:
+    collate_fn = default_data_collator if args.llama_config is not None else get_maskgit_collator(config)
+    train_dataloader = DataLoader(
+        train_dataset, shuffle=True, collate_fn=collate_fn,
+        batch_size=args.per_device_train_batch_size, num_workers=4, pin_memory=True,
+    )
+
+    # Shuffle eval dataset and then set shuffle=False on the dataloader.
+    # Shuffling in the dataloader results in reshuffling with each iteration.
+    eval_dataset.valid_start_inds = torch.tensor(eval_dataset.valid_start_inds)[
+        torch.randperm(len(eval_dataset), generator=torch.Generator().manual_seed(0))
+    ].tolist()
+
+    eval_dataloader = DataLoader(
+        eval_dataset, shuffle=False, collate_fn=collate_fn,
+        batch_size=args.per_device_eval_batch_size, pin_memory=True,
+    )
 
     # Scheduler and math around the number of training steps.
     overrode_max_train_steps = False
@@ -421,7 +470,7 @@ def main():
         args.max_train_steps = args.num_train_epochs * num_update_steps_per_epoch
         overrode_max_train_steps = True
 
-    if args.lr_scheduler_type == "custom_cosine":  # decay to 0.1 of the peak learning rate
+    if args.lr_scheduler_type == "custom_cosine":  # decay to `end_ratio` of the peak learning rate
         def get_lr_wrapper(warmup_steps, max_steps, end_ratio=0.1):
             def get_lr(step):
                 if step < warmup_steps:
@@ -458,6 +507,12 @@ def main():
         model, optimizer, train_dataloader, eval_dataloader, lr_scheduler
     )
 
+    if not args.no_compile:
+        torch._dynamo.config.cache_size_limit = 128
+        torch._dynamo.config.optimize_ddp = False  # https://github.com/pytorch/pytorch/issues/104674
+        # TODO: https://github.com/pytorch/pytorch/issues/109774#issuecomment-2046633776
+        model = torch.compile(model)
+
     # We need to recalculate our total training steps as the size of the training dataloader may have changed.
     num_update_steps_per_epoch = math.ceil(len(train_dataloader) / args.gradient_accumulation_steps)
     if overrode_max_train_steps:
@@ -473,23 +528,26 @@ def main():
 
     # We need to initialize the trackers we use, and also store our configuration.
     # The trackers initialize automatically on the main process.
-    experiment_config = vars(args)
+    experiment_config = vars(args) | vars(config)
 
-    zframe_side_len = eval_metadata["s"]
-    data_hz = 30
-    accelerator.print("Assuming 30 Hz data")
+    seq_len = latent_side_len**2 * args.window_size
+    effective_batch_size = args.per_device_train_batch_size * args.gradient_accumulation_steps \
+                           * accelerator.num_processes
+    experiment_config.update({
+        "model_parameters": sum(p.numel() for p in model.parameters()),
+        "model_parameters_M": round(sum(p.numel() for p in model.parameters()) / 1e6),
+        "seq_len": seq_len,
+        "hz": hz / args.stride,
+        "train_data_tokens": len(train_dataset) * seq_len,
+        "effective_batch_size": effective_batch_size,
+        "effective_batch_size_tokens": effective_batch_size * seq_len,
+        "mixed_precision": accelerator.mixed_precision,
+    })
 
-    experiment_config["model_parameters"] = sum(p.numel() for p in model.parameters())
-    experiment_config["seq_len"] = zframe_side_len**2 * args.window_size
-    experiment_config["hz"] = data_hz / args.stride
-    experiment_config["train_data_tokens"] = len(train_dataset) * experiment_config["seq_len"]
-    experiment_config["effective_batch_size"] = args.per_device_train_batch_size * \
-                                                args.gradient_accumulation_steps * accelerator.num_processes
-    experiment_config["effective_batch_size_tokens"] = experiment_config["effective_batch_size"] \
-                                                       * experiment_config["seq_len"]
-    experiment_config["chunked_eval"] = isinstance(eval_dataset, Subset)
+    experiment_config["FLOPs_per_update_step"] = 6 * experiment_config["model_parameters"] \
+                                                 * experiment_config["effective_batch_size_tokens"]
 
-    accelerator.init_trackers("1XGPT_20x20_noconv_noaugment", experiment_config)
+    accelerator.init_trackers(project_name="1XGPT_muP_MAGVIT2_v0", config=experiment_config)
 
     # Train!
     total_batch_size = args.per_device_train_batch_size * accelerator.num_processes * args.gradient_accumulation_steps
@@ -511,7 +569,7 @@ def main():
     if args.resume_from_checkpoint:
         if args.resume_from_checkpoint is not None or args.resume_from_checkpoint != "":
             checkpoint_path = args.resume_from_checkpoint
-            path = os.path.basename(args.resume_from_checkpoint)
+            path = os.path.basename(args.resume_from_checkpoint.rstrip("/"))
         else:
             # Get the most recent checkpoint
             dirs = [f.name for f in os.scandir(os.getcwd()) if f.is_dir()]
@@ -521,7 +579,10 @@ def main():
             path = os.path.basename(checkpoint_path)
 
         accelerator.print(f"Resumed from checkpoint: {checkpoint_path}")
-        accelerator.load_state(checkpoint_path)
+
+        tied_weights = getattr(config, "tie_word_embeddings", False)
+        accelerator.load_state(checkpoint_path, strict=not tied_weights)  # tied weights not saved so can't load strict, but also no need to tie again
+
         # Extract `epoch_{i}` or `step_{i}`
         training_difference = os.path.splitext(path)[0]
 
@@ -538,8 +599,7 @@ def main():
 
     # update the progress_bar if load from checkpoint
     progress_bar.update(completed_steps)
-    train_losses = []
-    flops_per_batch = None
+    loss_info = torch.zeros(2, device=accelerator.device)  # sum, count
 
     for epoch in range(starting_epoch, args.num_train_epochs):
         model.train()
@@ -549,21 +609,20 @@ def main():
         else:
             active_dataloader = train_dataloader
 
+        _time = time.time()
         for step, batch in enumerate(active_dataloader):
-            # Very hacky, using the first batch to calculate FLOPS, but `calculate_flops` has an error with
-            # a compiled model, so only compiling the model after the first batch.
-            if flops_per_batch is None and batch["input_ids"].size(0) == args.per_device_train_batch_size:
-                flops_per_batch = calculate_flops(model=model, kwargs=batch, include_backPropagation=True,
-                                                  print_results=False, print_detailed=False, output_as_string=False)[0]
-                model = torch.compile(model)
-
+            batch_size = batch["input_ids"].size(0)
             # Manual gradient accumulation because accelerator somehow taking a lot of memory
             is_update_step = (step + 1) % args.gradient_accumulation_steps == 0
             ctx_manager = contextlib.nullcontext() if is_update_step else accelerator.no_sync(model)
+
             with ctx_manager:
                 outputs = model(**batch)
                 loss = outputs.loss
-                train_losses.append(accelerator.gather_for_metrics(loss.detach()).cpu())  # Note: not repeating
+                # print(f"{loss.item()=}")
+                loss_info[0] += loss.detach() * batch_size
+                loss_info[1] += batch_size
+
                 accelerator.backward(loss / args.gradient_accumulation_steps)
 
             if not is_update_step:
@@ -578,25 +637,31 @@ def main():
             lr_scheduler.step()
             optimizer.zero_grad()
 
-            avg_train_loss = torch.stack(train_losses).mean().item()
-            perplexity = math.exp(avg_train_loss)
-            examples_processed = completed_steps * args.per_device_train_batch_size * args.gradient_accumulation_steps \
-                                 * accelerator.num_processes
+            loss_info = accelerator.reduce(loss_info)
+            avg_train_loss = (loss_info[0] / loss_info[1]).item()  # sum / count
+            loss_info *= 0  # reset sum and count
+            try:
+                perplexity = math.exp(avg_train_loss)
+            except OverflowError:
+                perplexity = float("inf")
 
+            batch_time = time.time() - _time  # accumulated batch
+            _time = time.time()
             accelerator.log(
                 {
                     "train_perplexity": perplexity,
                     "train_loss": avg_train_loss,
                     "epoch": epoch,
                     "update_step": completed_steps,
-                    "examples_processed": examples_processed,
+                    "examples_processed": completed_steps * args.per_device_train_batch_size
+                                          * args.gradient_accumulation_steps * accelerator.num_processes,
                     "learning_rate": lr_scheduler.get_last_lr()[0],
-                    "flops": completed_steps * flops_per_batch * args.gradient_accumulation_steps * accelerator.num_processes,
+                    "flops": (completed_steps + 1) * experiment_config["FLOPs_per_update_step"],
+                    "throughput_examples": experiment_config["effective_batch_size"] / batch_time,
                 }, step=completed_steps)
 
             progress_bar.update(1)
             completed_steps += 1
-            train_losses = []
 
             if isinstance(checkpointing_steps, int) and completed_steps % checkpointing_steps == 0:
                 save_checkpoint(model, accelerator, args, f"step_{completed_steps}")
@@ -610,33 +675,36 @@ def main():
                 num_correct = 0
                 num_total = 0
                 for step, batch in enumerate(eval_dataloader):
+                    batch_size = len(batch["input_ids"])  # Last batch might not be full
                     with torch.no_grad():
                         outputs = model(**batch)
 
                     loss = outputs.loss
-                    eval_losses.append(accelerator.gather_for_metrics(loss.repeat(args.per_device_eval_batch_size)))
+                    eval_losses.append(accelerator.gather_for_metrics(loss.repeat(batch_size)))
 
-                    shifted_preds = torch.argmax(outputs.logits[:, :-1, :], dim=-1)
-                    shifted_labels = batch["input_ids"][:, 1:]
-                    num_correct += accelerator.gather_for_metrics((shifted_preds == shifted_labels).sum()).sum().item()
-                    num_total += accelerator.gather_for_metrics(torch.tensor(torch.numel(shifted_labels),
-                                                                             device=accelerator.device)).sum().item()
+                    if "acc" in outputs:  # TODO: don't reduce here
+                        # `num_correct` and `num_total` actually track mean accuracy in this case.
+                        num_correct += accelerator.reduce(outputs.acc, reduction="mean").item() * batch_size
+                        num_total += batch_size
+                    else:
+                        shifted_preds = torch.argmax(outputs.logits[:, :-1, :], dim=-1)
+                        shifted_labels = batch["labels"][:, 1:]
+                        num_correct += accelerator.gather_for_metrics((shifted_preds == shifted_labels).sum()).sum().item()
+                        num_total += accelerator.gather_for_metrics(torch.tensor(torch.numel(shifted_labels),
+                                                                                 device=accelerator.device)).sum().item()
                     if step >= args.max_eval_steps:
                         break
 
                 eval_losses = torch.cat(eval_losses)
+                eval_loss = torch.mean(eval_losses).item()
+                eval_teacher_acc = num_correct / num_total
                 try:
-                    eval_loss = torch.mean(eval_losses)
                     perplexity = math.exp(eval_loss)
-                    eval_teacher_acc = num_correct / num_total
                 except OverflowError:
                     perplexity = float("inf")
 
-                logger.info(
-                    f"step {completed_steps}: perplexity: {perplexity} eval_loss: {eval_loss} {eval_teacher_acc=}")
+                logger.info(f"{completed_steps=} {perplexity=} {eval_loss=} {eval_teacher_acc=}")
 
-                examples_processed = completed_steps * args.per_device_train_batch_size * \
-                                     args.gradient_accumulation_steps * accelerator.num_processes
                 accelerator.log(
                     {
                         "eval_perplexity": perplexity,
@@ -644,18 +712,21 @@ def main():
                         "eval_teacher_acc": eval_teacher_acc,
                         "epoch": epoch,
                         "update_step": completed_steps,
-                        "examples_processed": examples_processed,
-                        "flops": completed_steps * flops_per_batch * args.gradient_accumulation_steps \
-                                 * accelerator.num_processes,
+                        "examples_processed": completed_steps * args.per_device_train_batch_size
+                                              * args.gradient_accumulation_steps * accelerator.num_processes,
+                        "flops": completed_steps * experiment_config["FLOPs_per_update_step"],
                     },
                     step=completed_steps,
                 )
 
-                visualize(accelerator, model, eval_dataloader, args.window_size, eval_metadata, metrics_prefix="eval")
-                visualize(accelerator, model, train_dataloader, args.window_size, eval_metadata, metrics_prefix="train")  # Note: using eval_metadata
-
                 # Switch back to train mode
                 model.train()
+
+            if completed_steps % args.vis_every_n_steps == 0:
+                if not args.overfit_first_batch:  # val is train otherwise
+                    visualize(accelerator, model, eval_dataloader, args.window_size, "val")
+
+                visualize(accelerator, model, train_dataloader, args.window_size, "train")
 
             if completed_steps >= args.max_train_steps:
                 break
@@ -664,7 +735,6 @@ def main():
             save_checkpoint(model, accelerator, args, f"epoch_{epoch}")
 
     accelerator.end_training()
-
     save_checkpoint(model, accelerator, args, f"final_checkpt")
 
 

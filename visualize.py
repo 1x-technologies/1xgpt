@@ -3,8 +3,8 @@
 """Script to decode tokenized video into images/video."""
 
 import argparse
+import math
 import os
-from pathlib import Path
 from PIL import Image
 
 import numpy as np
@@ -12,36 +12,21 @@ import torch
 import torch.distributed.optim
 import torch.utils.checkpoint
 import torch.utils.data
-from diffusers import AutoencoderKL, StableDiffusionInstructPix2PixPipeline
+import torchvision.transforms.v2.functional as transforms_f
 from einops import rearrange
 from matplotlib import pyplot as plt
 from tqdm.auto import tqdm
 
 from data import RawTokenDataset
-# Custom mod of diffusers UNet2DConditionModel
-from decoder.unet_2d_condition import UNet2DConditionModel2
+# # Custom mod of diffusers UNet2DConditionModel
+# from diffusers import AutoencoderKL, StableDiffusionInstructPix2PixPipeline
+# from decoder.unet_2d_condition import UNet2DConditionModel2
+from magvit2.config import VQConfig
+from magvit2.models.lfqgan import VQModel
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Simple example of a training script for InstructPix2Pix.")
-    parser.add_argument(
-        "--pretrained_model_name_or_path",
-        type=str,
-        default="timbrooks/instruct-pix2pix",
-        help="Path to pretrained model or model identifier from huggingface.co/models.",
-    )
-    parser.add_argument(
-        "--unet_checkpoint_path",
-        type=str,
-        default="1x-technologies/worldmodel_unet_v0",
-        help="Path to the pretrained UNet checkpoint.",
-    )
-    parser.add_argument(
-        "--num_frames",
-        type=int,
-        default=100,
-        help="Number of frames to decode",
-    )
+    parser = argparse.ArgumentParser(description="Visualize tokenized video as GIF or comic.")
     parser.add_argument(
         "--stride",
         type=int,
@@ -94,59 +79,30 @@ def export_to_gif(frames: list, output_gif_path: str, fps: int):
                        loop=0)
 
 
-def decode_latents_wrapper(pretrained_model_name_or_path="timbrooks/instruct-pix2pix",
-                           unet_checkpoint_path="1x-technologies/worldmodel_unet_v0", device="cuda",
-                           max_images=5000):
-    # VAE does image decoding
-    vae = AutoencoderKL.from_pretrained(
-        pretrained_model_name_or_path,
-        subfolder="vae",
-    ).to(device=device, dtype=torch.bfloat16)
+def decode_latents_wrapper(batch_size=16, tokenizer_ckpt="data/magvit2.ckpt"):
+    device = "cuda"
+    dtype = torch.bfloat16
 
-    unet = UNet2DConditionModel2.from_pretrained(
-        unet_checkpoint_path,
-        vector_quantize=False,
-    ).to(device=device, dtype=torch.bfloat16)
+    model_config = VQConfig()
+    model = VQModel(model_config, ckpt_path=tokenizer_ckpt)
+    model = model.to(device=device, dtype=dtype)
 
-    # Create pipeline
-    pipeline = StableDiffusionInstructPix2PixPipeline.from_pretrained(
-        pretrained_model_name_or_path,
-        unet=unet,
-        vae=vae,
-        torch_dtype=torch.bfloat16,
-    )
-    pipeline.safety_checker = None  # Disabling the safety checker.
-    pipeline = pipeline.to(device)
-    pipeline.set_progress_bar_config(disable=True)
-
+    @torch.no_grad()
     def decode_latents(video_data):
-        """ Decompresses `video_data` from the latent space to the image space. """
-        image_guidance_scale = 3.
-        text_guidance_scale = 1.
-        num_inference_steps = 20
+        """
+        video_data: (b, h, w), where b is different from training/eval batch size.
+        """
+        decoded_imgs = []
 
-        prompt_embeds = torch.zeros((1, 32, 768), device=device)
-        images = []
-        with torch.autocast(device, dtype=torch.bfloat16, enabled=True):
-            for indices_HW in tqdm(video_data):
-                input_image_tensor = pipeline.unet.fsq.implicit_codebook[indices_HW.flatten().astype(np.int32)].reshape(
-                    indices_HW.shape + (-1,))
+        for shard_ind in range(math.ceil(len(video_data) / batch_size)):
+            batch = torch.from_numpy(video_data[shard_ind * batch_size: (shard_ind + 1) * batch_size].astype(np.int64))
+            if model.use_ema:
+                with model.ema_scope():
+                    quant = model.quantize.get_codebook_entry(rearrange(batch, "b h w -> b (h w)"),
+                                                              bhwc=batch.shape + (model.quantize.codebook_dim,)).flip(1)
+                    decoded_imgs.append(((model.decode(quant.to(device=device, dtype=dtype)).detach().cpu() + 1) * 127.5).to(dtype=torch.uint8))
 
-                input_image_tensor = rearrange(input_image_tensor, "h w c -> 1 c h w")
-
-                img = pipeline(
-                    prompt=None,
-                    prompt_embeds=prompt_embeds,
-                    image=input_image_tensor,
-                    num_inference_steps=num_inference_steps,
-                    image_guidance_scale=image_guidance_scale,
-                    guidance_scale=text_guidance_scale,
-                ).images[0]
-                images.append(img)
-                if len(images) >= max_images:
-                    break
-
-        return images
+        return [transforms_f.to_pil_image(img) for img in torch.cat(decoded_imgs)]
 
     return decode_latents
 
@@ -156,14 +112,11 @@ def main():
     args = parse_args()
 
     # Load tokens
-    token_dataset = RawTokenDataset(args.token_dir, 1, filter_interrupts=False)
+    token_dataset = RawTokenDataset(args.token_dir, 1, filter_interrupts=False, filter_overlaps=False)
     video_data = token_dataset.data
     metadata = token_dataset.metadata
 
-    images = decode_latents_wrapper(
-        args.pretrained_model_name_or_path, args.unet_checkpoint_path,
-        max_images=30
-    )(video_data[args.offset::args.stride])
+    images = decode_latents_wrapper()(video_data[args.offset::args.stride])
     output_gif_path = os.path.join(args.token_dir, f"generated_offset{args.offset}.gif")
     export_to_gif(images, output_gif_path, args.fps)
     print(f"Saved to {output_gif_path}")
