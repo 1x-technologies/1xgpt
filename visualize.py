@@ -54,6 +54,9 @@ def parse_args():
         "--fps", type=int, default=2, help="Frames per second"
     )
     parser.add_argument(
+        "--max_images", type=int, default=None, help="Maximum number of images to generate. None for all."
+    )
+    parser.add_argument(
         "--disable_comic", action="store_true",
         help="Comic generation assumes `token_dir` follows the same format as generate: e.g., "
              "`prompt | predictions | gtruth` in `video.bin`, `window_size` in `metadata.json`."
@@ -86,7 +89,7 @@ def export_to_gif(frames: list, output_gif_path: str, fps: int):
                        loop=0)
 
 
-def decode_latents_wrapper(batch_size=16, tokenizer_ckpt="data/magvit2.ckpt"):
+def decode_latents_wrapper(batch_size=16, tokenizer_ckpt="data/magvit2.ckpt", max_images=None):
     device = "cuda"
     dtype = torch.bfloat16
 
@@ -108,6 +111,8 @@ def decode_latents_wrapper(batch_size=16, tokenizer_ckpt="data/magvit2.ckpt"):
                     quant = model.quantize.get_codebook_entry(rearrange(batch, "b h w -> b (h w)"),
                                                               bhwc=batch.shape + (model.quantize.codebook_dim,)).flip(1)
                     decoded_imgs.append(((model.decode(quant.to(device=device, dtype=dtype)).detach().cpu() + 1) * 127.5).to(dtype=torch.uint8))
+            if max_images and len(decoded_imgs) * batch_size >= max_images:
+                break
 
         return [transforms_f.to_pil_image(img) for img in torch.cat(decoded_imgs)]
 
@@ -123,7 +128,7 @@ def main():
     video_data = token_dataset.data
     metadata = token_dataset.metadata
 
-    images = decode_latents_wrapper()(video_data[args.offset::args.stride])
+    images = decode_latents_wrapper(max_images=args.max_images)(video_data[args.offset::args.stride])
     output_gif_path = os.path.join(args.token_dir, f"generated_offset{args.offset}.gif")
     export_to_gif(images, output_gif_path, args.fps)
     print(f"Saved to {output_gif_path}")
