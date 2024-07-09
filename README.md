@@ -48,7 +48,7 @@ This repo provides an implementation of the spatio-temporal transformer and Mask
 python train.py --genie_config genie/configs/magvit_n32_h8_d256.json --output_dir data/genie_model
 
 # Generate frames from trained model
-python genie/genie.py --checkpoint_dir data/genie_model/final_checkpt
+python genie/generate.py --checkpoint_dir data/genie_model/final_checkpt
 
 # Visualize generated frames
 python visualize.py --token_dir data/genie_generated
@@ -57,7 +57,9 @@ python visualize.py --token_dir data/genie_generated
 python genie/evaluate.py --checkpoint_dir data/genie_model/final_checkpt
 
 # Generate or evaluate the 1X baseline model
-python genie/generate.py --checkpoint_dir 1x-technologies/GENIE_35M --example_ind 150  # 150 is cherry-picked
+python genie/generate.py --checkpoint_dir 1x-technologies/GENIE_35M --output_dir data/genie_baseline_generated --example_ind 150  # 150 is cherry-picked
+python visualize.py --token_dir data/genie_baseline_generated
+
 python genie/evaluate.py --checkpoint_dir 1x-technologies/GENIE_35M
 ```
  

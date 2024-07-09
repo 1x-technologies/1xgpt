@@ -1,4 +1,7 @@
-#!/usr/bin/env python3
+"""
+Example usage:
+`python genie/evaluate.py --checkpoint_dir 1x-technologies/GENIE_35M`
+"""
 
 import argparse
 import time

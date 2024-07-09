@@ -1,6 +1,13 @@
 #!/usr/bin/env python3
 
-"""Script to decode tokenized video into images/video."""
+"""
+Script to decode tokenized video into images/video.
+Example usage:
+```
+python genie/generate.py --checkpoint_dir 1x-technologies/GENIE_35M --output_dir data/genie_baseline_generated --example_ind 150  # 150 is cherry-picked
+python visualize.py --token_dir data/genie_baseline_generated
+```
+"""
 
 import argparse
 import math
@@ -36,9 +43,9 @@ def parse_args():
     parser.add_argument(
         "--token_dir",
         type=str,
-        default="data/generated",
+        default="data/genie_generated",
         help="Directory of tokens, in the format of `video.bin` and `metadata.json`. "
-             "Visualized gifs will be written here.",
+             "Visualized gif and comic will be written here.",
     )
     parser.add_argument(
         "--offset", type=int, default=0, help="Offset to start generating images from"
