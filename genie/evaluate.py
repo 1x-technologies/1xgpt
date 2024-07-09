@@ -77,7 +77,7 @@ class GenieEvaluator:
         self.device = device
         self.args = args
 
-    def predict_zframe_logits(self, input_ids: torch.LongTensor) -> tuple[torch.Tensor, torch.Tensor]:
+    def predict_zframe_logits(self, input_ids: torch.LongTensor) -> tuple[torch.LongTensor, torch.FloatTensor]:
         """
         Conditioned on each prefix: [frame_0], [frame_0, frame_1], ..., [frame_0, frame_1, ... frame_{T-1}],
         predict the tokens in the following frame: [pred_frame_1, pred_frame_2, ..., pred_frame_T].
@@ -90,9 +90,13 @@ class GenieEvaluator:
         Args:
             input_ids: LongTensor of size (B, T*H*W) corresponding to flattened, tokenized images.
 
-        Returns:
-            FloatTensor of size (B, C, T-1, H, W) corresponding to the predicted logits,
-            where C=1000 is the number of classes.
+        Returns: (samples_THW, factored_logits)
+            samples_THW:
+                size (B, T, H, W) corresponding to the token ids of the predicted frames.
+                May differ from the argmax of `factored_logits` if not greedy sampling.
+            factored_logits:
+                size (B, 512, 2, T-1, H, W) corresponding to the predicted logits.
+                Note that we are factorizing the 2**18 vocabulary into two separate vocabularies of size 512 each.
         """
         inputs_THW = rearrange(input_ids, "b (t h w) -> b t h w", t=WINDOW_SIZE,
                                h=self.args.latent_h, w=self.args.latent_w).to(self.device)
@@ -112,8 +116,8 @@ class GenieEvaluator:
             all_samples.append(samples_HW)
             all_logits.append(factored_logits)
 
-        samples = torch.stack(all_samples, dim=1)
-        return samples, torch.stack(all_logits, dim=3)
+        samples_THW = torch.stack(all_samples, dim=1)
+        return samples_THW, torch.stack(all_logits, dim=3)
 
     def predict_next_frames(self, samples_THW) -> torch.Tensor:
         """
@@ -159,8 +163,8 @@ def main():
 
     for batch in tqdm(dataloader):
         batch_size = batch["input_ids"].size(0)
-        reshaped_input_ids = rearrange(batch["input_ids"], "b (t h w) -> b t h w", t=WINDOW_SIZE, h=args.latent_h,
-                                       w=args.latent_w)
+        reshaped_input_ids = rearrange(batch["input_ids"], "b (t h w) -> b t h w", t=WINDOW_SIZE,
+                                       h=args.latent_h, w=args.latent_w)
 
         start_time = time.time()
         samples, factored_logits = evaluator.predict_zframe_logits(batch["input_ids"])

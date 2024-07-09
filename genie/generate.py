@@ -54,9 +54,6 @@ def parse_args():
         "--temperature", type=float, default=0,
         help="Sampling temperature. If `temperature` <= 1e-8, will do greedy sampling."
     )
-    parser.add_argument(
-        "--visualize", action="store_true", help="If True, will visualize the generated tokens."
-    )
 
     return parser.parse_args()
 
@@ -116,9 +113,6 @@ def main():
             "w": latent_side_len,
             "t": args.window_size,
         }, f)
-
-    if args.visualize:
-        raise NotImplementedError
 
 
 if __name__ == "__main__":

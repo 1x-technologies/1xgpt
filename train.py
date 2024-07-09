@@ -232,11 +232,7 @@ def parse_args():
 
 def save_checkpoint(model, accelerator, args, filename):
     """
-    Args:
-        model:
-        accelerator:
-        args:
-        filename: `save_path = os.path.join(args.output_dir, filename)`
+    filename: `save_path = os.path.join(args.output_dir, filename)`
     """
     unwrapped_model = accelerator.unwrap_model(model)
     save_path = os.path.join(args.output_dir, filename)
@@ -427,8 +423,7 @@ def main():
             model.set_mup_shapes(rescale_params=True)
             model.init_weights()  # might be unnecessary if `rescale_params` is True
 
-    # Optimizer
-    # Split weights in two groups, one with weight decay and the other not.
+    # Optimizer. Split weights in two groups, one with weight decay and the other not.
     no_decay = ["bias", "layer_norm.weight"]
     optimizer_grouped_parameters = [
         {
