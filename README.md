@@ -99,8 +99,8 @@ After manually reviewing your code, we run evals in a 22.04 + CUDA 12.3 sandboxe
 ### Metric Details
 We evaluate the model under two different scenarios; in both cases, the model receives the tokens of the previous frame(s) as input, 
 and the model should predict the tokens of the following frame. 
-- **Autoregressive** (frame-level) is closer to an actual generation scenario, where the model receives $t$ x 20x20 tokens representing frames 0 to $t - 1$, 
-and the model should auto-regressively predict all 20x20 tokens for frame $t$.
+- **Autoregressive** (frame-level) is closer to an actual generation scenario, where the model receives $t$ x 16x16 tokens representing frames 0 to $t - 1$, 
+and the model should auto-regressively predict all 16x16 tokens for frame $t$.
 - (If applicable), **Teacher-forced** matches the typical training scenario with causal masking. 
 It is simply a next token prediction task where all previous tokens, including any in the current frame, are ground-truth tokens as opposed to autoregressively predicted tokens.
 
@@ -108,9 +108,9 @@ It is simply a next token prediction task where all previous tokens, including a
 
 All scores are evaluated on our held-out dataset.
 
-| **User**                    | **Teacher-Forced CE Loss** | **Teacher-Forced Token Accuracy** | **Autoregressive CE Loss** | **Autoregressive Token Accuracy** | **Autoregressive LPIPS** | **Generation Time\* (secs/frame)** |
-|-----------------------------|----------------------------|-----------------------------------|----------------------------|-----------------------------------|--------------------------|------------------------------------|
-| 1x-technologies/GENIE_35M   | N/A                        | N/A                               | 9.305                      | 0.0385                            | 0.120                    | 0.017                              |
+| **User**                                                                      | **Teacher-Forced CE Loss** | **Teacher-Forced Token Accuracy** | **Autoregressive CE Loss** | **Autoregressive Token Accuracy** | **Autoregressive LPIPS** | **Generation Time\* (secs/frame)** |
+|-------------------------------------------------------------------------------|----------------------------|-----------------------------------|----------------------------|-----------------------------------|--------------------------|------------------------------------|
+| [1x-technologies/GENIE_35M](https://huggingface.co/1x-technologies/GENIE_35M) | N/A                        | N/A                               | 9.305                      | 0.0385                            | 0.120                    | 0.017                              |
 
 *Note that generation time is the time to generate latents on a RTX 4090 GPU, and excludes the time to decode latents to images.
 
@@ -153,7 +153,7 @@ engines such as <a href="https://g.co/datasetsearch">Google Dataset Search</a>.
   </tr>
   <tr>
     <td>description</td>
-    <td><code itemprop="description">A dataset of over 100 hours of compressed image + action tokens across a fleet of EVE robots.</code></td>
+    <td><code itemprop="description">A dataset of over 100 hours of compressed image tokens + raw actions across a fleet of EVE robots.</code></td>
   </tr>
   <tr>
     <td>provider</td>
