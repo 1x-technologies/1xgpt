@@ -2,7 +2,7 @@
 
 Progress in video generation may soon make it possible to evaluate robot policies in a completely learned world model. An end-to-end learned simulator of millions of robot environments would greatly accelerate progress in general-purpose robotics and provide a useful signal for scaling data and compute.
 
-To accelerate progress in learned simulators for robots, we're announcing the 1X World Model Challenge, where the task is to predict future first-person observations of the [EVE Android](https://www.1x.tech/androids/eve). We provide over 100 hours of vector-quantized image and action tokens collected from operating EVE at 1X offices, baseline world models (LLM, GENIE), and a frame-level MAGVIT2 autoencoder that compresses images into 16x16 tokens and decodes them back into images.
+To accelerate progress in learned simulators for robots, we're announcing the 1X World Model Challenge, where the task is to predict future first-person observations of the [EVE Android](https://www.1x.tech/androids/eve). We provide over 100 hours of vector-quantized image tokens and raw actions collected from operating EVE at 1X offices, baseline world model (GENIE-style), and a frame-level MAGVIT2 autoencoder that compresses images into 16x16 tokens and decodes them back into images.
 
 We hope that this dataset will be helpful to roboticists who want to experiment with a diverse set of general-purpose robotics data in human environments. A sufficiently powerful world model will allow anyone to access a "neurally-simulated EVE". The evaluation challenge is the ultimate goal, and we have cash prizes for intermediate goals like fitting the data well (compression challenge) and sampling plausible videos (sampling challenge).
 
@@ -16,6 +16,8 @@ We hope that this dataset will be helpful to roboticists who want to experiment 
 |![til](./assets/v1.0/generated_offset700100.gif)|![til](./assets/v1.0/generated_offset225100.gif)|![til](./assets/v1.0/generated_offset775100.gif)|![til](./assets/v1.0/generated_offset875100.gif)|![til](./assets/v1.0/generated_offset475100.gif)|![til](./assets/v1.0/generated_offset725100.gif)|![til](./assets/v1.0/generated_offset525100.gif)|![til](./assets/v1.0/generated_offset100.gif)|
 |![til](./assets/v1.0/generated_offset925100.gif)|![til](./assets/v1.0/generated_offset975100.gif)|![til](./assets/v1.0/generated_offset625100.gif)|![til](./assets/v1.0/generated_offset675100.gif)|![til](./assets/v1.0/generated_offset400100.gif)|![til](./assets/v1.0/generated_offset175100.gif)|![til](./assets/v1.0/generated_offset850100.gif)|![til](./assets/v1.0/generated_offset100100.gif)|
 |![til](./assets/v1.0/generated_offset125100.gif)|![til](./assets/v1.0/generated_offset375100.gif)|![til](./assets/v1.0/generated_offset275100.gif)|![til](./assets/v1.0/generated_offset800100.gif)|![til](./assets/v1.0/generated_offset600100.gif)|![til](./assets/v1.0/generated_offset1000100.gif)|![til](./assets/v1.0/generated_offset450100.gif)|![til](./assets/v1.0/generated_offset50100.gif)|
+|![til](./assets/v1.0/generated_offset250100.gif)|![til](./assets/v1.0/generated_offset150100.gif)|![til](./assets/v1.0/generated_offset825100.gif)|![til](./assets/v1.0/generated_offset950100.gif)|![til](./assets/v1.0/generated_offset25100.gif)|![til](./assets/v1.0/generated_offset750100.gif)|![til](./assets/v1.0/generated_offset650100.gif)|![til](./assets/v1.0/generated_offset300100.gif)|
+
 
 ## Challenges
 
