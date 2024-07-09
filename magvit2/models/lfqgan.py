@@ -1,5 +1,7 @@
-import json
-from dataclasses import dataclass
+"""
+Modification of Open-MAGVIT2 code, including adding gradient accumulation during training, using VQConfig,
+removing hardcoded arguments and removing unnecessary code.
+"""
 
 import torch
 import torch.nn.functional as F
@@ -11,12 +13,8 @@ from contextlib import contextmanager
 from magvit2.config import VQConfig
 from magvit2.modules.diffusionmodules.improved_model import Encoder, Decoder
 from magvit2.modules.losses.vqperceptual import VQLPIPSWithDiscriminator
-from magvit2.modules.vqvae.quantize import VectorQuantizer2 as VectorQuantizer
 from magvit2.modules.vqvae.lookup_free_quantize import LFQ
-from magvit2.modules.vqvae.quantize import GumbelQuantize
-from magvit2.modules.vqvae.quantize import EMAVectorQuantizer
 from magvit2.modules.scheduler.lr_scheduler import Scheduler_LinearWarmup, Scheduler_LinearWarmup_CosineDecay
-from magvit2.modules.util import requires_grad
 from magvit2.modules.ema import LitEma
 
 

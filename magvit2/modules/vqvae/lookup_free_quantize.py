@@ -10,6 +10,10 @@ https://github.com/lucidrains/vector-quantize-pytorch/blob/master/vector_quantiz
 https://github.com/theAdamColton/ijepa-enhanced/blob/7edef5f7288ae8f537f0db8a10044a2a487f70c9/ijepa_enhanced/lfq.py
 """
 
+"""
+Modified Open-MAGVIT2 code to use VQConfig.
+"""
+
 from math import log2, ceil
 from collections import namedtuple
 
@@ -19,6 +23,8 @@ import torch.nn.functional as F
 from torch.nn import Module
 
 from einops import rearrange, reduce, pack, unpack
+
+from magvit2.config import VQConfig
 
 # constants
 
@@ -113,7 +119,7 @@ def entropy_loss(
 
 
 class LFQ(Module):
-    def __init__(self, config):
+    def __init__(self, config: VQConfig):
         super().__init__()
 
         # some assert validations

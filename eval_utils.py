@@ -49,16 +49,16 @@ def compute_loss(
 ) -> float:
     """
     If applicable (model returns logits), compute the cross entropy loss.
-    In the case of a factorized vocabulary, sums the cross entropy losses for each vocabulary
+    In the case of a factorized vocabulary, sums the cross entropy losses for each vocabulary.
 
     Assuming all submissions use the parametrization of num_factored_vocabs = 2, factored_vocab_size = 512
 
     Args:
-        labels_flat: LongTensor of size (B, T*H*W) corresponding to flattened, tokenized images.
-        factored_logits: FloatTensor of size (B, factored_vocab_size, num_factored_vocabs, T-1, H, W).
+        labels_flat: size (B, T*H*W) corresponding to flattened, tokenized images.
+        factored_logits: size (B, factored_vocab_size, num_factored_vocabs, T-1, H, W).
             E.g. output of `genie.evaluate.GenieEvaluator.predict_zframe_logits()`
         num_factored_vocabs: Should be 2 for v1.0 of the challenge.
-        factored_vocab_size: Should be 2 for v1.0 of the challenge.
+        factored_vocab_size: Should be 512 for v1.0 of the challenge.
     Returns:
         Cross entropy loss
     """
@@ -73,7 +73,8 @@ def compute_loss(
     labels_THW = labels_THW[:, 1:].to(factored_logits.device)
 
     factored_labels = factorize_labels(labels_THW, num_factored_vocabs, factored_vocab_size)
-    return torch.nn.functional.cross_entropy(factored_logits, factored_labels, reduction="none").sum(dim=1).mean().item()
+    return torch.nn.functional.cross_entropy(factored_logits, factored_labels, reduction="none")\
+        .sum(dim=1).mean().item()  # Final loss is the sum of the two losses across the size-512 vocabularies
 
 
 def compute_lpips(frames_a: torch.ByteTensor, frames_b: torch.ByteTensor, lpips_func: Callable) -> list:

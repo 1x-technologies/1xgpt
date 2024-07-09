@@ -36,7 +36,19 @@ class STMaskGIT(nn.Module, PyTorchModelHubMixin):
         self.h = self.w = math.isqrt(config.S)
         assert self.h**2 == config.S, "Expected S to be square"
 
-        self.decoder = STTransformerDecoder(config)
+        self.decoder = STTransformerDecoder(
+            num_layers=config.num_layers,
+            num_heads=config.num_heads,
+            d_model=config.d_model,
+            qkv_bias=config.qkv_bias,
+            proj_bias=config.proj_bias,
+            qk_norm=config.qk_norm,
+            use_mup=config.use_mup,
+            attn_drop=config.attn_drop,
+            mlp_ratio=config.mlp_ratio,
+            mlp_bias=config.mlp_bias,
+            mlp_drop=config.mlp_drop,
+        )
         self.pos_embed_TSC = torch.nn.Parameter(torch.zeros(1, config.T, config.S, config.d_model))
 
         self.mask_token_id = config.image_vocab_size
@@ -48,10 +60,22 @@ class STMaskGIT(nn.Module, PyTorchModelHubMixin):
 
         self.config = config
 
-    def generate(self, input_ids, attention_mask, max_new_tokens, min_new_tokens=None, return_logits=False):
+    def generate(
+        self,
+        input_ids: torch.LongTensor,
+        attention_mask: torch.LongTensor,
+        max_new_tokens: int,
+        min_new_tokens: int = None,
+        return_logits: int = False
+    ) -> tuple[torch.LongTensor, torch.FloatTensor]:
         """
         Args designed to match the format of Llama.
         We ignore `attention_mask`, and use `max_new_tokens` to determine the number of frames to generate.
+
+        Returns: (sample_THW, factored_logits)
+            sample_THW: size (B, num_new_frames, H, W) corresponding to autoregressively generated
+                unfactorized token ids for future frames.
+            factored_logits: size (B, factored_vocab_size, num_factored_vocabs, num_new_frames, H, W).
         """
         assert min_new_tokens in (None, max_new_tokens), \
             "Expecting `min_new_tokens`, if specified, to match `max_new_tokens`."
@@ -90,13 +114,27 @@ class STMaskGIT(nn.Module, PyTorchModelHubMixin):
     @torch.no_grad()
     def maskgit_generate(
         self,
-        prompt_THW,
-        out_t,
-        maskgit_steps=1,
-        temperature=0,
-    ):
+        prompt_THW: torch.LongTensor,
+        out_t: int,
+        maskgit_steps: int = 1,
+        temperature: float = 0.0,
+    ) -> tuple[torch.LongTensor, torch.FloatTensor]:
         """
-        If `temperature` <= 1e-8, will do greedy sampling.
+        Performs MaskGIT-style inference to predict frame `out_t`.
+
+        Args:
+            prompt_THW: Unfactorized token ids, size (B, T, H, W)
+            out_t: Will return predicted unfactorized token ids for this frame.
+                Should be >= 1 as the 0th frame is assumed to be given.
+                Expects all future frames to be fully masked.
+            maskgit_steps: The number of MaskGIT-style inference steps to take.
+            temperature: Sampling temperature.
+                In the factorized case, sampling is performed for each factorized vocabulary independently.
+                If temperature is <= 1e-8, will be greedy (i.e. argmax) instead of actual sampling.
+
+        Returns: (sample_HW, factored_logits)
+            sample_HW: size (B, H, W) corresponding to predicted unfactorized token ids for frame `out_t`.
+            factored_logits: size (B, factored_vocab_size, num_factored_vocabs, H, W).
         """
         # assume we have pre-masked z{out_t}...zT with all masks
         assert out_t, "maskgit_generate requires out_t > 0"

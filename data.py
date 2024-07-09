@@ -158,7 +158,6 @@ def get_maskgit_collator(config: GenieConfig):
         return {
             "input_ids": rearrange(x_THW, "b t h w -> b (t h w)"),
             "labels": rearrange(labels, "b t h w -> b (t h w)"),
-            # "relevant_mask": mask | random_patches_mask  # only 15 frames instead of 16 though
         }
 
     return collate_fn

@@ -1,3 +1,7 @@
+"""
+Not in original Open-MAGVIT2.
+"""
+
 import json
 from dataclasses import dataclass
 
