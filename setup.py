@@ -1,7 +1,7 @@
-from setuptools import find_namespace_packages, setup
+from setuptools import find_packages, setup
 
 setup(
     name="onexgpt",
     version="1.0",
-    packages=find_namespace_packages(include=['genie.*', 'magvit2.*']),
+        packages=find_packages(include=['genie', 'magvit2',]),
 )
