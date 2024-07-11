@@ -24,7 +24,7 @@ sys.path.append(os.getcwd())
 from data import RawTokenDataset
 from visualize import decode_latents_wrapper
 from eval_utils import decode_tokens, compute_lpips, AvgMetric, compute_loss
-from factorization_utils import factorize_labels
+from genie.factorization_utils import factorize_labels
 from genie.st_mask_git import STMaskGIT
 
 

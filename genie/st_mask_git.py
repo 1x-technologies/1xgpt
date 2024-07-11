@@ -12,7 +12,7 @@ from huggingface_hub.hub_mixin import T
 from tqdm import tqdm
 from transformers.utils import ModelOutput
 
-from factorization_utils import FactorizedEmbedding, factorize_labels
+from genie.factorization_utils import FactorizedEmbedding, factorize_labels
 from genie.config import GenieConfig
 from genie.st_transformer import STTransformerDecoder
 
