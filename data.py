@@ -9,7 +9,7 @@ import torch
 from einops import rearrange
 from torch.utils.data import Dataset as TorchDataset
 
-from factorization_utils import factorize_token_ids, unfactorize_token_ids
+from genie.factorization_utils import factorize_token_ids, unfactorize_token_ids
 from genie.config import GenieConfig
 from genie.st_mask_git import cosine_schedule
 
