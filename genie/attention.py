@@ -50,8 +50,8 @@ class BasicSelfAttention(nn.Module):
 
         if causal:
             mask_value = -torch.finfo(attn.dtype).max
-            i, j = attn.shape[-2:]
-            mask = torch.ones(i, j, device = q.device, dtype = torch.bool).triu(j - i + 1)
+            i, j = attn.shape[-2:]            
+            mask = ~torch.tril(torch.ones(i, j)).bool().to(attn.device)
             attn = attn.masked_fill(mask, mask_value)
 
         attn = attn.softmax(dim=-1)

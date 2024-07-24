@@ -31,14 +31,9 @@ class FactorizedEmbedding(nn.Module):
         # x should be (b, t, h*w)
         # initialize all embeddings to the mask token embedding, and then fill in actual token embeddings
         embeds = self.mask_token_embed.repeat(input_ids.size() + (1,))
-        is_not_mask = input_ids != self.config.image_vocab_size  # `image_vocab_size = factored_vocab_size**num_factored_vocabs`
-        embeds[is_not_mask] = 0
-
-        input_ids = input_ids.clone()
-        for factored_embed in self.factored_embeds:  # TODO: no for loop
-            embeds[is_not_mask] += factored_embed(input_ids[is_not_mask] % self.config.factored_vocab_size)
-            input_ids //= self.config.factored_vocab_size
-
+        is_not_mask = input_ids != self.config.image_vocab_size
+        tensor_list = [self.factored_embeds[i]((input_ids[is_not_mask] // self.config.factored_vocab_size**i) % self.config.factored_vocab_size) for i in range(self.config.num_factored_vocabs)]
+        embeds[is_not_mask] = torch.sum(torch.stack(tensor_list), dim=0)
         return embeds
 
 
