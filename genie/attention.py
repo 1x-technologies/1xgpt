@@ -37,7 +37,7 @@ class BasicSelfAttention(nn.Module):
         B, N, C = x.shape
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
 
-        q, k, v = qkv[0] * self.scale, qkv[1], qkv[2]
+        q, k, v = qkv[0], qkv[1], qkv[2]
 
         if self.qk_norm:
             q = self.norm(q)
@@ -45,7 +45,7 @@ class BasicSelfAttention(nn.Module):
             # LN done in float32, cast back to bf16
             q = q.to(dtype=v.dtype)
             k = k.to(dtype=v.dtype)
-
+        q *= self.scale
         attn = q @ k.transpose(-2, -1)
 
         if causal:
