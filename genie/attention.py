@@ -1,11 +1,12 @@
 import torch
 from torch import nn
-
 from xformers.ops import LowerTriangularMask, memory_efficient_attention, unbind
+import os
 
 
-class SelfAttention(nn.Module):
-    # NOTE: Mem-eff attention from xformers is actually Flash Attention 2
+XFORMERS_DISABLED = os.environ.get("XFORMERS_DISABLED", "false").lower() == "true"
+
+class BasicSelfAttention(nn.Module):
     def __init__(
         self,
         num_heads: int,
@@ -34,6 +35,37 @@ class SelfAttention(nn.Module):
 
     def forward(self, x: torch.Tensor, causal: bool = False) -> torch.Tensor:
         B, N, C = x.shape
+        qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
+
+        q, k, v = qkv[0], qkv[1], qkv[2]
+
+        if self.qk_norm:
+            q = self.norm(q)
+            k = self.norm(k)
+            # LN done in float32, cast back to bf16
+            q = q.to(dtype=v.dtype)
+            k = k.to(dtype=v.dtype)
+        q *= self.scale
+        attn = q @ k.transpose(-2, -1)
+
+        if causal:
+            mask_value = -torch.finfo(attn.dtype).max
+            i, j = attn.shape[-2:]            
+            mask = ~torch.tril(torch.ones(i, j)).bool().to(attn.device)
+            attn = attn.masked_fill(mask, mask_value)
+
+        attn = attn.softmax(dim=-1)
+
+        x = (attn @ v).transpose(1, 2).reshape(B, N, C)
+        x = self.proj(x)
+        return x
+
+
+class MemoryEfficientAttention(BasicSelfAttention):
+    # NOTE: Mem-eff attention from xformers is actually Flash Attention 2
+        
+    def forward(self, x: torch.Tensor, causal: bool = False) -> torch.Tensor:
+        B, N, C = x.shape
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, self.head_dim)
         q, k, v = unbind(qkv, 2)
         if self.qk_norm:
@@ -45,8 +77,12 @@ class SelfAttention(nn.Module):
 
         attn_bias = LowerTriangularMask() if causal else None
         x = memory_efficient_attention(q, k, v, attn_bias=attn_bias, scale=self.scale)
-
         x = x.reshape([B, N, C])
 
         x = self.proj(x)
         return x
+
+if XFORMERS_DISABLED:
+    SelfAttention = BasicSelfAttention
+else:
+    SelfAttention = MemoryEfficientAttention
