@@ -10,19 +10,19 @@ from genie.factorization_utils import factorize_labels
 class AvgMetric:
     """ Records a running sum and count to compute the mean. """
     def __init__(self):
-        self.sum = 0
+        self.total = 0
         self.count = 0
 
     def update(self, val, batch_size=1):
-        self.sum += val * batch_size
+        self.total += val * batch_size
         self.count += batch_size
 
     def update_list(self, flat_vals):
-        self.sum += sum(flat_vals)
+        self.total += sum(flat_vals)
         self.count += len(flat_vals)
 
     def mean(self):
-        return self.sum / self.count
+        return self.total / self.count
 
 
 def decode_tokens(reshaped_token_ids: torch.LongTensor, decode_latents: Callable) -> torch.ByteTensor:
@@ -34,9 +34,9 @@ def decode_tokens(reshaped_token_ids: torch.LongTensor, decode_latents: Callable
         decode_latents: instance of `decode_latents_wrapper()`
 
     Returns:
-        (B, T, 3, 160, 160)
+        (B, T, 3, 256, 256)
     """
-    decoded_imgs = decode_latents(rearrange(reshaped_token_ids, "b t h w -> (b t) h w").numpy())
+    decoded_imgs = decode_latents(rearrange(reshaped_token_ids, "b t h w -> (b t) h w").cpu().numpy())
     decoded_tensor = torch.stack([transforms_f.pil_to_tensor(pred_img) for pred_img in decoded_imgs])
     return rearrange(decoded_tensor, "(b t) c H W -> b t c H W", b=reshaped_token_ids.size(0))
 
@@ -79,9 +79,10 @@ def compute_loss(
 
 def compute_lpips(frames_a: torch.ByteTensor, frames_b: torch.ByteTensor, lpips_func: Callable) -> list:
     """
-    Given two batches of video data, of shape (B, T, 3, 160, 160), computes the LPIPS score on frame-by-frame level.
+    Given two batches of video data, of shape (B, T, 3, 256, 256), computes the LPIPS score on frame-by-frame level.
     Cannot use `lpips_func` directly because it expects at most 4D input.
     """
-    flattened_a, flattened_b = [rearrange(frames, "b t c H W -> (b t) c H W")
+    # LPIPS expects pixel values between [-1, 1]
+    flattened_a, flattened_b = [rearrange(frames / 127.5 - 1, "b t c H W -> (b t) c H W")
                                 for frames in (frames_a, frames_b)]
     return lpips_func(flattened_a, flattened_b).flatten().tolist()

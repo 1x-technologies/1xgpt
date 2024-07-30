@@ -11,7 +11,6 @@ from collections import defaultdict
 from pathlib import Path
 
 import lpips
-import mup
 import torch
 from einops import rearrange
 from torch.utils.data import DataLoader
@@ -24,11 +23,10 @@ sys.path.append(os.getcwd())
 from data import RawTokenDataset
 from visualize import decode_latents_wrapper
 from eval_utils import decode_tokens, compute_lpips, AvgMetric, compute_loss
-from genie.factorization_utils import factorize_labels
 from genie.st_mask_git import STMaskGIT
 
 
-# Hardcoded values for the v1.0 dataset
+# Hardcoded values for the v1.1 dataset
 WINDOW_SIZE = 16
 STRIDE = 15  # Data is 30 Hz so with stride 15, video is 2 Hz
 
@@ -36,7 +34,7 @@ STRIDE = 15  # Data is 30 Hz so with stride 15, video is 2 Hz
 def parse_args():
     parser = argparse.ArgumentParser(description="Evaluate GENIE-style models.")
     parser.add_argument(
-        "--val_data_dir", type=str, default="data/val_v1.0",
+        "--val_data_dir", type=str, default="data/val_v1.1",
         help="A directory with video data, should have a `metadata.json` and `video.bin`."
     )
     parser.add_argument(
@@ -48,7 +46,7 @@ def parse_args():
         help="Batch size, current script only supports a single GPU."
     )
     parser.add_argument(
-        "--maskgit_steps", type=int, default=1, help="Number of MaskGIT sampling steps."
+        "--maskgit_steps", type=int, default=2, help="Number of MaskGIT sampling steps."
     )
     parser.add_argument(
         "--temperature", type=float, default=0,

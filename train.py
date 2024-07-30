@@ -43,11 +43,11 @@ def parse_args():
 
     # Data
     parser.add_argument(
-        "--train_data_dir", type=str, default="data/train_v1.0",
+        "--train_data_dir", type=str, default="data/train_v1.1",
         help="Directory containing tokenized data, should have a `video.bin`, `metadata.json` and `segment_ids.json`."
     )
     parser.add_argument(
-        "--val_data_dir", type=str, default="data/val_v1.0",
+        "--val_data_dir", type=str, default="data/val_v1.1",
         help="Directory containing tokenized data, should have a `video.bin`, `metadata.json` and `segment_ids.json`."
     )
     parser.add_argument(
@@ -139,7 +139,7 @@ def parse_args():
     parser.add_argument(
         "--max_eval_steps",
         type=int,
-        default=1e10,
+        default=int(1e10),
         help="Only evaluate on `max_eval_steps` batches of validation data per process, faster.",
     )
     parser.add_argument(
@@ -258,7 +258,7 @@ def visualize(accelerator, model, dataloader, window_size, metrics_prefix="eval"
     decode_latents = decode_latents_wrapper()  # re-initializing every time to save memory
     if accelerator.is_main_process:
         lpips_alex = lpips.LPIPS(net="alex")  # Calculate LPIPS w/ AlexNet, the fastest option
-        metrics = {"pred_lpips": []}
+        metrics = {"ar_lpips": []}
 
     latent_side_len = metadata["s"]
 
@@ -307,8 +307,8 @@ def visualize(accelerator, model, dataloader, window_size, metrics_prefix="eval"
                 wandb_tracker.log({f"vis_{metrics_prefix}_{j}": fig}, commit=False)
                 plt.close(fig)
 
-            metrics["pred_lpips"].extend(compute_lpips(decoded_gtruth,  # Note: not parallelizing right now
-                                                       decoded_output[:, num_prompt_frames:], lpips_alex))
+            metrics["ar_lpips"].extend(compute_lpips(decoded_gtruth,  # Note: not parallelizing right now
+                                                     decoded_output[:, num_prompt_frames:], lpips_alex))
 
         if step + 1 >= max_steps:
             break
@@ -472,8 +472,8 @@ def main():
                     return (step + 1) / warmup_steps
 
                 remaining_steps = max_steps - warmup_steps
-                return ((1 + math.cos(math.pi * (step - warmup_steps) / remaining_steps)) / 2) * (
-                        1 - end_ratio) + end_ratio
+                return ((1 + math.cos(math.pi * (step - warmup_steps) / remaining_steps)) / 2) \
+                    * (1 - end_ratio) + end_ratio
             return get_lr
 
         lr_scheduler = torch.optim.lr_scheduler.LambdaLR(
@@ -528,6 +528,7 @@ def main():
     seq_len = latent_side_len**2 * args.window_size
     effective_batch_size = args.per_device_train_batch_size * args.gradient_accumulation_steps \
                            * accelerator.num_processes
+
     experiment_config.update({
         "model_parameters": sum(p.numel() for p in model.parameters()),
         "model_parameters_M": round(sum(p.numel() for p in model.parameters()) / 1e6),
@@ -614,7 +615,6 @@ def main():
             with ctx_manager:
                 outputs = model(**batch)
                 loss = outputs.loss
-                # print(f"{loss.item()=}")
                 loss_info[0] += loss.detach() * batch_size
                 loss_info[1] += batch_size
 
@@ -718,7 +718,7 @@ def main():
                 model.train()
 
             if completed_steps % args.vis_every_n_steps == 0:
-                if not args.overfit_first_batch:  # val is train otherwise
+                if not args.overfit_first_batch:  # val is same as train otherwise
                     visualize(accelerator, model, eval_dataloader, args.window_size, "val")
 
                 visualize(accelerator, model, train_dataloader, args.window_size, "train")

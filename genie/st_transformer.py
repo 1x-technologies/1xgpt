@@ -42,7 +42,7 @@ class STBlock(nn.Module):
     ) -> None:
         super().__init__()
         self.norm1 = nn.Identity() if qk_norm else nn.LayerNorm(d_model, eps=1e-05)
-        # sequence dim is over each frame's 20x20 patch tokens
+        # sequence dim is over each frame's 16x16 patch tokens
         self.spatial_attn = SelfAttention(
             num_heads=num_heads,
             d_model=d_model,

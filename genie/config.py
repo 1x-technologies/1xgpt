@@ -1,6 +1,8 @@
 import json
 from dataclasses import dataclass
 
+from genie.factorization_utils import nth_root
+
 
 @dataclass
 class GenieConfig:
@@ -51,9 +53,3 @@ class GenieConfig:
 
     def __post_init__(self):
         self.factored_vocab_size = nth_root(self.image_vocab_size, self.num_factored_vocabs)
-
-
-def nth_root(x, n):
-    root = round(x ** (1 / n))
-    assert root ** n == x, (x, n, root)
-    return root

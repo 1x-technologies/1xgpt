@@ -1,6 +1,4 @@
 import math
-from pathlib import Path
-from typing import Type, Union, Optional, Dict
 
 import mup
 import torch
@@ -8,7 +6,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 from einops import rearrange
 from huggingface_hub import PyTorchModelHubMixin
-from huggingface_hub.hub_mixin import T
 from tqdm import tqdm
 from transformers.utils import ModelOutput
 
@@ -49,13 +46,18 @@ class STMaskGIT(nn.Module, PyTorchModelHubMixin):
             mlp_bias=config.mlp_bias,
             mlp_drop=config.mlp_drop,
         )
-        self.pos_embed_TSC = torch.nn.Parameter(torch.zeros(1, config.T, config.S, config.d_model))
 
+        self.pos_embed_TSC = torch.nn.Parameter(torch.zeros(1, config.T, config.S, config.d_model))
         self.mask_token_id = config.image_vocab_size
 
-        # FactorizedEmbedding also works for num_factored_vocabs = 1
-        self.token_embed = FactorizedEmbedding(config)
-        cls = mup.MuReadout if config.use_mup else nn.Linear  # MuReadout instead of nn.Linear slows down compiled training?
+        self.token_embed = FactorizedEmbedding(  # also works for num_factored_vocabs = 1
+            factored_vocab_size=config.factored_vocab_size,
+            num_factored_vocabs=config.num_factored_vocabs,
+            d_model=config.d_model,
+            mask_token_id=self.mask_token_id,
+        )
+
+        cls = FixedMuReadout if config.use_mup else nn.Linear  # (Fixed)MuReadout might slow dow down compiled training?
         self.out_x_proj = cls(config.d_model, config.factored_vocab_size * config.num_factored_vocabs)
 
         self.config = config
@@ -66,16 +68,18 @@ class STMaskGIT(nn.Module, PyTorchModelHubMixin):
         attention_mask: torch.LongTensor,
         max_new_tokens: int,
         min_new_tokens: int = None,
-        return_logits: int = False
+        return_logits: int = False,
+        maskgit_steps: int = 1,
+        temperature: float = 0.0,
     ) -> tuple[torch.LongTensor, torch.FloatTensor]:
         """
         Args designed to match the format of Llama.
         We ignore `attention_mask`, and use `max_new_tokens` to determine the number of frames to generate.
 
-        Returns: (sample_THW, factored_logits)
-            sample_THW: size (B, num_new_frames, H, W) corresponding to autoregressively generated
+        Returns: `(sample_THW, factored_logits)` if `return_logits` else `sample_THW`
+            sample_THW: size (B, num_new_frames * H * W) corresponding to autoregressively generated
                 unfactorized token ids for future frames.
-            factored_logits: size (B, factored_vocab_size, num_factored_vocabs, num_new_frames, H, W).
+            Optionally, factored_logits: size (B, factored_vocab_size, num_factored_vocabs, num_new_frames, H, W).
         """
         assert min_new_tokens in (None, max_new_tokens), \
             "Expecting `min_new_tokens`, if specified, to match `max_new_tokens`."
@@ -93,8 +97,12 @@ class STMaskGIT(nn.Module, PyTorchModelHubMixin):
         all_factored_logits = []
         for timestep in range(inputs_THW.size(1), inputs_THW.size(1) + num_new_frames):
             # could change sampling hparams
-            sample_HW, factored_logits = self.maskgit_generate(inputs_masked_THW, timestep,
-                                                               maskgit_steps=1, temperature=0)
+            sample_HW, factored_logits = self.maskgit_generate(
+                inputs_masked_THW,
+                timestep,
+                maskgit_steps=maskgit_steps,
+                temperature=temperature
+            )
             inputs_masked_THW[:, timestep] = sample_HW
             all_factored_logits.append(factored_logits)
 
@@ -118,6 +126,7 @@ class STMaskGIT(nn.Module, PyTorchModelHubMixin):
         out_t: int,
         maskgit_steps: int = 1,
         temperature: float = 0.0,
+        unmask_mode: str = "random",
     ) -> tuple[torch.LongTensor, torch.FloatTensor]:
         """
         Performs MaskGIT-style inference to predict frame `out_t`.
@@ -131,6 +140,11 @@ class STMaskGIT(nn.Module, PyTorchModelHubMixin):
             temperature: Sampling temperature.
                 In the factorized case, sampling is performed for each factorized vocabulary independently.
                 If temperature is <= 1e-8, will be greedy (i.e. argmax) instead of actual sampling.
+            unmask_mode: The method to determine tokens to unmask during each step of MaskGIT inference.
+                Options:
+                    - "greedy" for unmasking the most confident tokens, which is matches the original MaskGIT
+                    - "random" for randomly choosing tokens to unmask
+                "greedy" tends to copy the previous frame, so we default to "random" instead.
 
         Returns: (sample_HW, factored_logits)
             sample_HW: size (B, H, W) corresponding to predicted unfactorized token ids for frame `out_t`.
@@ -148,11 +162,11 @@ class STMaskGIT(nn.Module, PyTorchModelHubMixin):
 
         logits_CTHW = self.compute_logits(prompt_THW)
         logits_CHW = logits_CTHW[:, :, out_t]
+        orig_logits_CHW = logits_CHW.clone()  # Return these original logits, not logits after partially sampling.
         for step in tqdm(range(maskgit_steps)):
             # Perform a single maskgit step (cosine schedule), updating unmasked in-place
             if step > 0:  # recompute logits with updated prompt
-                logits_CTHW = self.compute_logits(prompt_THW)
-                logits_CHW = logits_CTHW[:, :, out_t]
+                logits_CHW = self.compute_logits(prompt_THW)[:, :, out_t]
 
             factored_logits = rearrange(logits_CHW, "b (num_vocabs vocab_size) h w -> b vocab_size num_vocabs h w",
                                         vocab_size=self.config.factored_vocab_size,
@@ -179,16 +193,25 @@ class STMaskGIT(nn.Module, PyTorchModelHubMixin):
             prev_img_flat = rearrange(prompt_THW[:, out_t], "B H W -> B (H W)")
 
             samples_flat = samples_HW.reshape(bs, self.config.S)
-            confidences_flat = confidences_HW.reshape(bs, self.config.S)
 
             if step != maskgit_steps - 1:  # skip masking for last maskgit step
-                confidences_flat[unmasked] = torch.inf
                 # use cosine mask scheduling function, n is how many of frame out_t to mask
                 n = math.ceil(cosine_schedule((step + 1) / maskgit_steps) * self.config.S)
 
-                # set the n pixels with the smallest confidence to mask_token
+                if unmask_mode == "greedy":
+                    # set the n patches with the least confidence to mask_token
+                    confidences_flat = confidences_HW.reshape(bs, self.config.S)
+                elif unmask_mode == "random":
+                    # randomize confidences, so that patches are randomly masked
+                    confidences_flat = torch.rand_like(confidences_HW).reshape(bs, self.config.S)
+                    # not probability distribution anymore, but only relative order matters
+                else:
+                    raise NotImplementedError(f"Expected `unmask_mode` to be one of ['greedy', 'random'], "
+                                              f"got {unmask_mode}")
+
+                confidences_flat[unmasked] = torch.inf
                 least_confident_tokens = torch.argsort(confidences_flat, dim=1)
-                # unmask the (L - n) most confident tokens
+                # unmask the (self.config.S - n) most confident tokens
                 unmasked.scatter_(1, least_confident_tokens[:, n:], True)
                 samples_flat.scatter_(1, least_confident_tokens[:, :n], self.mask_token_id)
 
@@ -201,7 +224,7 @@ class STMaskGIT(nn.Module, PyTorchModelHubMixin):
 
         # Return the final sample and logits
         return samples_HW, rearrange(
-            logits_CHW, "B (num_vocabs vocab_size) H W -> B vocab_size num_vocabs H W",
+            orig_logits_CHW, "B (num_vocabs vocab_size) H W -> B vocab_size num_vocabs H W",
             vocab_size=self.config.factored_vocab_size, num_vocabs=self.config.num_factored_vocabs, H=h, W=w
         )
 
@@ -283,8 +306,18 @@ class STMaskGIT(nn.Module, PyTorchModelHubMixin):
     @classmethod
     def from_pretrained(cls, *args, **kwargs):
         """ Extra logic for muP. """
-        model = super(STMaskGIT, cls).from_pretrained(*args, **kwargs)
+        model = super().from_pretrained(*args, **kwargs)
         if model.config.use_mup:
             model.set_mup_shapes(rescale_params=False)
 
         return model
+
+
+class FixedMuReadout(mup.MuReadout):
+    def forward(self, x):
+        """
+        Using `return super(mup.MuReadout, self).forward(self.output_mult * x / self.width_mult())` with `torch.compile`
+        results in two divisions by `self.width_mult()` for some reason
+        """
+        # return F.linear(self.output_mult * x / self.width_mult(), self.weight, self.bias)  # equivalent
+        return nn.Linear.forward(self, self.output_mult * x / self.width_mult())
