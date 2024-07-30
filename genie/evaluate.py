@@ -12,6 +12,7 @@ from pathlib import Path
 
 import lpips
 import torch
+import transformers
 from einops import rearrange
 from torch.utils.data import DataLoader
 from tqdm import tqdm
@@ -143,6 +144,7 @@ class GenieEvaluator:
 
 @torch.no_grad()
 def main():
+    transformers.set_seed(42)
     args = parse_args()
 
     val_dataset = RawTokenDataset(args.val_data_dir, window_size=WINDOW_SIZE, stride=STRIDE, filter_overlaps=True)
