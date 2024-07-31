@@ -24,7 +24,7 @@ We hope that this dataset will be helpful to roboticists who want to experiment 
 Each example is a sequence of 16 first-person images from the robot at 2Hz (so 8 seconds total), and your goal is to predict the next image given the previous ones.
 
 - **Compression Challenge ($10k prize)**: Predict the discrete distribution of tokens in the next image.
-  - Criteria: Be the first to achieve a **temporally teacher-forced loss below 8.0** on our private test set.
+  - Criteria: Be the first to achieve a **[temporally teacher-forced](#metric-details) loss below 8.0** on our private test set.
 - **Sampling Challenge ($10k prize)**: Future prediction methods are not necessarily restricted to next-logit prediction. You can, for example, use methods like GANs, Diffusion, and MaskGIT to generate future images. Criteria will be released shortly.
 - **Evaluation Challenge (upcoming)**: given a set of N policies, $\pi_1, \pi_2, ... \pi_N$, where each policy $\pi_i(a_t|z_t)$ predicts action tokens from image tokens, can you evaluate all of the policies inside a "world model" $p(z_{t+1}|z_t, a_t)$ and tell us the ranked order of which policy is the best?
 
