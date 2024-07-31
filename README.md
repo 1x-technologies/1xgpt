@@ -122,7 +122,7 @@ including tokens in the current frame. Only applicable for causal LMs.
 As an example, consider predicting the final token of a video, corresponding to the lower right patch of frame 15. 
 The context the model receives in each scenario is:
 - Fully Autoregressive: the first $t$x16x16 tokens are ground truth tokens corresponding to the first $t$ prompt frames, 
-and all remaining tokens are autoregressively generated, where $0 t < 15$ is the predetermined number of prompt frames.
+and all remaining tokens are autoregressively generated, where $0 < t < 15$ is the predetermined number of prompt frames.
 - Temporally Teacher-forced: the first 15x16x16 tokens are ground truth tokens corresponding to the first 15 frames, 
 and all remaining tokens are autoregressively generated.
 - Fully Teacher-forced: all previous (16x16x16 - 1) tokens are ground truth tokens.
