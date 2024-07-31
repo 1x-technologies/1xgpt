@@ -54,7 +54,7 @@ class VQModel(L.LightningModule):
             list(self.quantize.parameters())
 
         if self.use_ema and stage is None:  #no need to construct ema when training transformer
-            self.model_ema = LitEma(self)
+            self.model_ema = LitEma(self)  # Note: this means EMA weights are overriden after `init_from_ckpt`.
 
         self.automatic_optimization = False
 

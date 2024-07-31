@@ -41,20 +41,26 @@ class RawTokenDataset(TorchDataset):
             self.metadata = json.load(f)
 
         shape = (self.metadata["num_images"], self.metadata["s"], self.metadata["s"])
-        video_tokens_path, segment_ids_path, action_tokens_path = [data_dir / f"{name}.bin" for name in ["video", "segment_ids", "actions"]]
+        video_tokens_path, segment_ids_path, action_tokens_path = [data_dir / f"{name}.bin"
+                                                                   for name in ["video", "segment_ids", "actions"]]
         token_dtype = np.dtype(self.metadata.get("token_dtype", "uint32"))
         self.data = np.memmap(video_tokens_path, dtype=token_dtype, mode="r", shape=shape)
         # self.actions = np.memmap(action_tokens_path, dtype=np.uint16, mode="r", shape=(self.metadata["num_images"],))
 
         if os.path.isfile(segment_ids_path):
-            self.segment_ids = np.memmap(segment_ids_path, dtype=np.int32, mode="r", shape=(self.metadata["num_images"],))
+            self.segment_ids = np.memmap(
+                segment_ids_path,
+                dtype=np.int32,
+                mode="r",
+                shape=(self.metadata["num_images"],)
+            )
         else:
             self.segment_ids = None
             if filter_interrupts:
                 raise NotImplementedError("Cannot filter interrupted sequences without segment ids.")
 
         self.window_size, self.stride = window_size, stride
-        # Number of frames between the first and last frames of a video sequence (including one endpoint frame)
+        # Number of frames between the first and last frames of a video sequence (excluding one endpoint frame)
         self.video_len = (self.window_size - 1) * self.stride
 
         self.valid_start_inds = []

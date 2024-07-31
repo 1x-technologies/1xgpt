@@ -17,5 +17,5 @@ abstract: >-
   tokens across a fleet of EVE robots.
 license: Apache-2.0
 commit: b8340b43061f0dbaac6cf49bafc00abb911afe81
-version: 0.0.1
+version: 1.1
 date-released: '2024-06-18'

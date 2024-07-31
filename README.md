@@ -23,7 +23,8 @@ We hope that this dataset will be helpful to roboticists who want to experiment 
 
 Each example is a sequence of 16 first-person images from the robot at 2Hz (so 8 seconds total), and your goal is to predict the next image given the previous ones.
 
-- **Compression Challenge ($10k prize)**: Predict the discrete distribution of tokens in the next image. To participate in the challenge, fill in your model predictions in `evaluate.py`. Criteria will be released shortly.
+- **Compression Challenge ($10k prize)**: Predict the discrete distribution of tokens in the next image.
+  - Criteria: Be the first to achieve a **temporally teacher-forced loss below 8.0** on our private test set.
 - **Sampling Challenge ($10k prize)**: Future prediction methods are not necessarily restricted to next-logit prediction. You can, for example, use methods like GANs, Diffusion, and MaskGIT to generate future images. Criteria will be released shortly.
 - **Evaluation Challenge (upcoming)**: given a set of N policies, $\pi_1, \pi_2, ... \pi_N$, where each policy $\pi_i(a_t|z_t)$ predicts action tokens from image tokens, can you evaluate all of the policies inside a "world model" $p(z_{t+1}|z_t, a_t)$ and tell us the ranked order of which policy is the best?
 
@@ -40,13 +41,13 @@ We require `Python 3.10` or later. This code was tested with `Python 3.10.12`.
 source venv/bin/activate
 ```
 
-## Training GENIE
+## GENIE
 
-This repo provides an implementation of the spatio-temporal transformer and MaskGIT sampler as described in [Genie: Generative Interactive Environments](https://arxiv.org/abs/2402.15391). Note that this implementation only trains on video sequences, not actions (though it is trivial to add this via an additive embedding). To train this baseline, 
+This repo provides an implementation of the spatio-temporal transformer and MaskGIT sampler as described in [Genie: Generative Interactive Environments](https://arxiv.org/abs/2402.15391). Note that this implementation only trains on video sequences, not actions (though it is trivial to add this via an additive embedding).
 
 ```
 # Train the GENIE model
-python train.py --genie_config genie/configs/magvit_n32_h8_d256.json --output_dir data/genie_model
+python train.py --genie_config genie/configs/magvit_n32_h8_d256.json --output_dir data/genie_model --max_eval_steps 10
 
 # Generate frames from trained model
 python genie/generate.py --checkpoint_dir data/genie_model/final_checkpt
@@ -56,19 +57,30 @@ python visualize.py --token_dir data/genie_generated
 
 # Evaluate the trained model
 python genie/evaluate.py --checkpoint_dir data/genie_model/final_checkpt
+```
 
-# Generate or evaluate the 1X baseline model
-python genie/generate.py --checkpoint_dir 1x-technologies/GENIE_35M --output_dir data/genie_baseline_generated --example_ind 150  # 150 is cherry-picked
-python visualize.py --token_dir data/genie_baseline_generated
+### 1X GENIE Baseline
+We provide two pre-trained GENIE models, linked in the [leaderboard](#leaderboard).
+```
+# Generate and visualize
+output_dir='data/genie_baseline_generated'
+for i in {0..240..10}; do
+    python genie/generate.py --checkpoint_dir 1x-technologies/GENIE_138M \
+        --output_dir $output_dir --example_ind $i --maskgit_steps 2 --temperature 0
+    python visualize.py --token_dir $output_dir
+    mv $output_dir/generated_offset0.gif $output_dir/example_$i.gif
+    mv $output_dir/generated_comic_offset0.png $output_dir/example_$i.png
+done
 
-python genie/evaluate.py --checkpoint_dir 1x-technologies/GENIE_35M
+# Evaluate
+python genie/evaluate.py --checkpoint_dir 1x-technologies/GENIE_138M --maskgit_steps 2
 ```
  
 ## Data Description
 
 [See the Dataset Card on Huggingface](https://huggingface.co/datasets/1x-technologies/worldmodel).
 
-The training dataset is stored in the `data/train_v1.0` directory.
+The training dataset is stored in the `data/train_v1.1` directory.
 
 ## Participating in the Challenges: 
 
@@ -90,7 +102,7 @@ After manually reviewing your code, we run evals in a 22.04 + CUDA 12.3 sandboxe
 ./evaluate.py --val_data_dir <PATH-TO-HELD-OUT-DATA>  # runs your model on held-out data
 ```
 
-## Challenge Details
+## Additional Challenge Details
 
 1. We've provided `magvit2.ckpt` in the dataset download, which are the weights for a [MAGVIT2](https://github.com/TencentARC/Open-MAGVIT2) encoder/decoder. The encoder allows you to tokenize external data to try to improve the metric.
 2. The loss metric is nonstandard compared to LLMs due to the vocabulary size of the image tokens, which was changed as of v1.0 release (Jul 8, 2024). Instead of computing cross entropy loss on logits with 2^18 classes, we compute cross entropy losses on 2x 2^9 class predictions and sum them up. The rationale for this is that the large vocabulary size (2^18) makes it very memory-intensive to store a logit tensor of size `(B, 2^18, T, 16, 16)`. Therefore, the compression challenge considers families of models with a factorized pmfs of the form p(x1, x2) = p(x1)p(x2). For sampling and evaluation challenge, a factorized pmf is a necessary criteria.
@@ -99,22 +111,53 @@ After manually reviewing your code, we run evals in a 22.04 + CUDA 12.3 sandboxe
 
 
 ### Metric Details
-We evaluate the model under two different scenarios; in both cases, the model receives the tokens of the previous frame(s) as input, 
-and the model should predict the tokens of the following frame. 
-- **Autoregressive** (frame-level) is closer to an actual generation scenario, where the model receives $t$ x 16x16 tokens representing frames 0 to $t - 1$, 
-and the model should auto-regressively predict all 16x16 tokens for frame $t$.
-- (If applicable), **Teacher-forced** matches the typical training scenario with causal masking. 
-It is simply a next token prediction task where all previous tokens, including any in the current frame, are ground-truth tokens as opposed to autoregressively predicted tokens.
+There are different scenarios for evaluation, which vary in the degree of ground truth context the model receives.
+In decreasing order of context, these scenarios are:
+- **Fully Autoregressive**: the model receives a predetermined number of ground truth frames and autoregressively predicts all remaining frames.
+- **Temporally Teacher-forced**: the model receives all ground truth frames before the current frame and autoregressively predicts all tokens in the current frame.
+- **Fully Teacher-forced**: the model receives all ground truth tokens before the current token, 
+including tokens in the current frame. Only applicable for causal LMs.
 
+As an example, consider predicting the final token of a video, corresponding to the lower right patch of frame 15. 
+The context the model receives in each scenario is:
+- Fully Autoregressive: the first $t$x16x16 tokens are ground truth tokens corresponding to the first $t$ prompt frames, 
+and all remaining tokens are autoregressively generated, where $0 t < 15$ is the predetermined number of prompt frames.
+- Temporally Teacher-forced: the first 15x16x16 tokens are ground truth tokens corresponding to the first 15 frames, 
+and all remaining tokens are autoregressively generated.
+- Fully Teacher-forced: all previous (16x16x16 - 1) tokens are ground truth tokens.
+
+The compression challenge uses the "temporally teacher-forced" scenario.
 ## Leaderboard
 
-All scores are evaluated on our held-out dataset.
-
-| **User**                                                                      | **Teacher-Forced CE Loss** | **Teacher-Forced Token Accuracy** | **Autoregressive CE Loss** | **Autoregressive Token Accuracy** | **Autoregressive LPIPS** | **Generation Time\* (secs/frame)** |
-|-------------------------------------------------------------------------------|----------------------------|-----------------------------------|----------------------------|-----------------------------------|--------------------------|------------------------------------|
-| [1x-technologies/GENIE_35M](https://huggingface.co/1x-technologies/GENIE_35M) | N/A                        | N/A                               | 9.305                      | 0.0385                            | 0.120                    | 0.017                              |
-
-*Note that generation time is the time to generate latents on a RTX 4090 GPU, and excludes the time to decode latents to images.
+These are evaluation results on `data/val_v1.1`.
+<table>
+  <thead>
+    <tr>
+      <th>User</th>
+      <th>Temporally Teacher-forced<br>CE Loss</th>
+      <th>Temporally Teacher-forced<br>Token Accuracy</th>
+      <th>Temporally Teacher-forced<br>LPIPS</th>
+      <th>Generation Time* <br>(secs/frame)</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><a href="https://huggingface.co/1x-technologies/GENIE_138M">1x-technologies/GENIE_138M</a><br>(<code>--maskgit_steps 2</code>)</td>
+      <td>8.79</td>
+      <td>0.0320</td>
+      <td>0.207</td>
+      <td>0.075</td>
+    </tr>
+    <tr>
+      <td><a href="https://huggingface.co/1x-technologies/GENIE_35M">1x-technologies/GENIE_35M</a><br>(<code>--maskgit_steps 2</code>)</td>
+      <td>8.99</td>
+      <td>0.0301</td>
+      <td>0.217</td>
+      <td>0.030</td>
+    </tr>
+  </tbody>
+</table>
+*Generation time is the time to generate latents on a RTX 4090 GPU, and excludes the time to decode latents to images.
 
 
 ## Help us Improve the Challenge!
@@ -132,6 +175,7 @@ If you use this software or dataset in your work, please cite it using the "Cite
 
 ## Changelog
 
+- v1.1 - Release compression challenge criteria; removed pauses and discontinuous videos from dataset; higher image crop.
 - v1.0 - More efficient MAGVIT2 tokenizer with 16x16 (C=2^18) mapping to 256x256 images, providing raw action data.
 - v0.0.1 - Initial challenge release with 20x20 (C=1000) image tokenizer mapping to 160x160 images.
 
