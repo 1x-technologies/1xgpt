@@ -89,6 +89,17 @@ def export_to_gif(frames: list, output_gif_path: str, fps: int):
                        loop=0)
 
 
+def rescale_magvit_output(magvit_output):
+    """
+    [-1, 1] -> [0, 255]
+
+    Important: clip to [0, 255]
+    """
+    rescaled_output = ((magvit_output.detach().cpu() + 1) * 127.5)
+    clipped_output = torch.clamp(rescaled_output, 0, 255).to(dtype=torch.uint8)
+    return clipped_output
+
+
 def decode_latents_wrapper(batch_size=16, tokenizer_ckpt="data/magvit2.ckpt", max_images=None):
     device = "cuda"
     dtype = torch.bfloat16
@@ -110,7 +121,7 @@ def decode_latents_wrapper(batch_size=16, tokenizer_ckpt="data/magvit2.ckpt", ma
                 with model.ema_scope():
                     quant = model.quantize.get_codebook_entry(rearrange(batch, "b h w -> b (h w)"),
                                                               bhwc=batch.shape + (model.quantize.codebook_dim,)).flip(1)
-                    decoded_imgs.append(((model.decode(quant.to(device=device, dtype=dtype)).detach().cpu() + 1) * 127.5).to(dtype=torch.uint8))
+                    decoded_imgs.append(((rescale_magvit_output(model.decode(quant.to(device=device, dtype=dtype))))))
             if max_images and len(decoded_imgs) * batch_size >= max_images:
                 break
 
