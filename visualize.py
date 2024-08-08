@@ -2,17 +2,13 @@
 
 """
 Script to decode tokenized video into images/video.
-Example usage:
-```
-python genie/generate.py --checkpoint_dir 1x-technologies/GENIE_35M --output_dir data/genie_baseline_generated --example_ind 150  # 150 is cherry-picked
-python visualize.py --token_dir data/genie_baseline_generated
-```
+Example usage: See https://github.com/1x-technologies/1xgpt?tab=readme-ov-file#1x-genie-baseline
 """
 
 import argparse
 import math
 import os
-from PIL import Image
+from PIL import Image, ImageDraw
 
 import numpy as np
 import torch
@@ -22,12 +18,8 @@ import torch.utils.data
 import torchvision.transforms.v2.functional as transforms_f
 from einops import rearrange
 from matplotlib import pyplot as plt
-from tqdm.auto import tqdm
 
 from data import RawTokenDataset
-# # Custom mod of diffusers UNet2DConditionModel
-# from diffusers import AutoencoderKL, StableDiffusionInstructPix2PixPipeline
-# from decoder.unet_2d_condition import UNet2DConditionModel2
 from magvit2.config import VQConfig
 from magvit2.models.lfqgan import VQModel
 
@@ -130,23 +122,68 @@ def decode_latents_wrapper(batch_size=16, tokenizer_ckpt="data/magvit2.ckpt", ma
     return decode_latents
 
 
+def caption_image(pil_image: Image, caption: str):
+    """
+    Add a bit of empty space at the top, and add the caption there
+    """
+    border_size = 36
+    font_size = 24
+
+    width, height = pil_image.size
+    new_width = width
+    new_height = height + border_size
+
+    new_image = Image.new("RGB", (new_width, new_height), "white")
+    new_image.paste(pil_image, (0, border_size))
+
+    # Draw the caption
+    draw = ImageDraw.Draw(new_image)
+
+    # Center text (`align` keyword doesn't work)
+    _, _, text_w, text_h = draw.textbbox((0, 0), caption, font_size=font_size)
+    draw.text(((width - text_w) / 2, (border_size - text_h) / 2), caption, fill="black", font_size=font_size)
+
+    return new_image
+
+
 @torch.no_grad()
 def main():
     args = parse_args()
 
     # Load tokens
     token_dataset = RawTokenDataset(args.token_dir, 1, filter_interrupts=False, filter_overlaps=False)
-    video_data = token_dataset.data
+    video_tokens = token_dataset.data
     metadata = token_dataset.metadata
 
-    images = decode_latents_wrapper(max_images=args.max_images)(video_data[args.offset::args.stride])
+    video_frames = decode_latents_wrapper(max_images=args.max_images)(video_tokens[args.offset::args.stride])
     output_gif_path = os.path.join(args.token_dir, f"generated_offset{args.offset}.gif")
-    export_to_gif(images, output_gif_path, args.fps)
+
+    # `generate` should populate `metadata.json` with these keys, while ground truth metadata does not have them
+    is_generated_data = all(key in metadata for key in ("num_prompt_frames", "window_size"))
+    if is_generated_data:
+        if video_tokens.shape[0] != metadata["window_size"] * 2 - metadata["num_prompt_frames"]:
+            raise ValueError(f"Unexpected {video_tokens.shape=} given {metadata['window_size']=}, {metadata['num_prompt_frames']=}")
+
+        captioned_frames = []
+        for i, frame in enumerate(video_frames):
+            if i < metadata["num_prompt_frames"]:
+                caption = "Prompt"
+            elif i < metadata["window_size"]:
+                caption = "Generated"
+            else:
+                caption = "Ground truth"
+
+            captioned_frames.append(caption_image(frame, caption))
+    else:
+        # Leave ground truth frames uncaptioned
+        captioned_frames = video_frames
+
+    export_to_gif(captioned_frames, output_gif_path, args.fps)
     print(f"Saved to {output_gif_path}")
 
     if not args.disable_comic:
         fig, axs = plt.subplots(nrows=2, ncols=metadata["window_size"], figsize=(3 * metadata["window_size"], 3 * 2))
-        for i, image in enumerate(images):
+        for i, image in enumerate(video_frames):
             if i < metadata["num_prompt_frames"]:
                 curr_axs = [axs[0, i], axs[1, i]]
                 title = "Prompt"
