@@ -1,9 +1,5 @@
 """
-Example usage:
-```
-python genie/generate.py --checkpoint_dir 1x-technologies/GENIE_35M --output_dir data/genie_baseline_generated --example_ind 150  # 150 is cherry-picked
-python visualize.py --token_dir data/genie_baseline_generated
-```
+Example usage: See https://github.com/1x-technologies/1xgpt?tab=readme-ov-file#1x-genie-baseline
 """
 
 import argparse
