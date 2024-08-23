@@ -8,7 +8,7 @@ We hope that this dataset will be helpful to roboticists who want to experiment 
 
 [Dataset on Huggingface](https://huggingface.co/datasets/1x-technologies/worldmodel)
 
-[Join the Discord](https://discord.gg/vppHFmeC)
+[Join the Discord](https://discord.gg/kk2HmvrQsN)
 
 
 |||||||||
