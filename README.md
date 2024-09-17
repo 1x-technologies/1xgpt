@@ -173,7 +173,7 @@ We also welcome donors to help us increase the bounty.
 
 ## Citation
 
-If you use this software or dataset in your work, please cite it using the "Cite this repository" button on Github.
+If you use this software or dataset in your work, please cite it using the "Cite this repository" button on GitHub.
 
 ## Changelog
 
