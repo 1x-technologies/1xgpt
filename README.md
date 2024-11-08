@@ -10,6 +10,9 @@ We hope that this dataset will be helpful to roboticists who want to experiment 
 
 [Join the Discord](https://discord.gg/kk2HmvrQsN)
 
+[Phase 1 Blog Post](https://www.1x.tech/discover/1x-world-model), [Phase 2 Blog Post](https://www.1x.tech/discover/1x-world-model-sampling-challenge)
+
+Stay tuned for updates on Phase 2 of the World Model Challenge!
 
 |||||||||
 |---|---|---|---|---|---|---|---|
